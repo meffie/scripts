@@ -1,0 +1,46 @@
+#!/bin/bash
+
+
+THEMEDIR=/usr/share/task
+RCFILE=~/.tasklocalrc
+
+_show_current() {
+    cat $RCFILE \
+    | grep "^include $THEMEDIR/" \
+    | sed "s@include $THEMEDIR/@@;s@\.theme@@"
+}
+
+_show_themes() {
+    _current=$(_show_current)
+    echo "Current color theme: $_current"
+    echo "Available color themes:"
+    ls $THEMEDIR/*.theme \
+    | sed "s@$THEMEDIR/@@;s@\.theme@@" \
+    | nl
+}
+
+_get_theme() {
+    if [ -f $THEMEDIR/$1.theme ]; then
+        echo $1
+    else
+        ls $THEMEDIR/*.theme \
+        | sed "s@$THEMEDIR/@@;s@\.theme@@" \
+        | nl -nln \
+        | grep "^$1 " \
+        | awk '{print $2}'
+    fi
+}
+
+if [ -z "$1" ]; then
+    echo "usage: taskcolor <number>|<name>"
+    _show_themes
+    exit 1
+fi
+
+theme=$(_get_theme $1)
+if [ -f $THEMEDIR/$theme.theme ]; then
+    echo "Setting color theme to '$theme'."
+    echo "include $THEMEDIR/$theme.theme" >$RCFILE
+else
+    _show_themes
+fi
