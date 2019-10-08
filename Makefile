@@ -4,6 +4,8 @@ BINDIR=$(HOME)/.local/bin
 install:
 	install -d $(BINDIR)
 	install af $(BINDIR)
+	install afsutil-setup.sh $(BINDIR)
+	install afsutil-teardown.sh $(BINDIR)
 	install hostaddr $(BINDIR)
 	install jumble $(BINDIR)
 	install openafs-release-team-report.sh $(BINDIR)
