@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# jumble - jumble word puzzle solver
+#
+# usage: jumble <jumbled-word>
+#
+
+jumble_index() {
+    index=$1
+    if [ -f $index ]; then
+        return
+    fi
+    cat /usr/share/dict/words |
+        perl -lane 'print sort split //' |
+        paste -d' ' - /usr/share/dict/words > $1
+}
+
+jumble_key() {
+    echo $1 | perl -lane 'print sort split //'
+}
+
+jumble_solve() {
+    word=$1
+    index=/tmp/jumble-$UID
+    jumble_index $index
+    grep "^$(jumble_key $word) " $index | cut -f2 -d' '
+}
+
+if [ -z "$1" ]; then
+    echo "usage: jumble <jumbled-word>"
+    exit 1
+fi
+jumble_solve $1
