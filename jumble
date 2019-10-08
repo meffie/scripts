@@ -4,30 +4,24 @@
 #
 # usage: jumble <jumbled-word>
 #
-
-jumble_index() {
-    index=$1
-    if [ -f $index ]; then
-        return
-    fi
-    cat /usr/share/dict/words |
-        perl -lane 'print sort split //' |
-        paste -d' ' - /usr/share/dict/words > $1
-}
-
-jumble_key() {
-    echo $1 | perl -lane 'print sort split //'
-}
-
-jumble_solve() {
-    word=$1
-    index=/tmp/jumble-$UID
-    jumble_index $index
-    grep "^$(jumble_key $word) " $index | cut -f2 -d' '
-}
+# Example bash script to solve the word jumble puzzle.
+#
+# Generate an table the first time we run this program for fast word
+# lookup. We sort the letters of each word to make a signature of the word
+# and save that in a table of signatures and words.
+#
+# To solve the jumble, we sort the letters of the jumbled word and then
+# search the table to find all the words with matching signatures.
+#
 
 if [ -z "$1" ]; then
     echo "usage: jumble <jumbled-word>"
     exit 1
 fi
-jumble_solve $1
+
+dict="/usr/share/dict/words"
+table="$HOME/.jumble-table"
+signature=$(echo "$1" | perl -lane 'print sort split //')
+
+test -f $table || perl -lane 'print sort split //' < $dict | paste -d: - $dict > $table
+grep "^$signature:" $table | cut -f2 -d:
