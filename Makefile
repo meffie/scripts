@@ -4,6 +4,7 @@ BINDIR=$(HOME)/.local/bin
 install:
 	install -d $(BINDIR)
 	install af $(BINDIR)
+	install hostaddr $(BINDIR)
 	install openafs-release-team-report.sh $(BINDIR)
 	install openafs-wiki-gerrits.py $(BINDIR)
 	install rt-query.py $(BINDIR)
