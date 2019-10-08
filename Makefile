@@ -12,3 +12,4 @@ install:
 	install rt-query.py $(BINDIR)
 	install taskcolor $(BINDIR)
 	install tasksync $(BINDIR)
+	install ticket $(BINDIR)

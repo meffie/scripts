@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if [ -z ${1} ]; then
+    echo "usage: ticket <number>" >&2
+    exit 1
+fi
+rt list -f id,subject ${1} | sed '1d; s/\t/: /'
+
