@@ -9,3 +9,4 @@ install:
 	install openafs-wiki-gerrits.py $(BINDIR)
 	install rt-query.py $(BINDIR)
 	install taskcolor $(BINDIR)
+	install tasksync $(BINDIR)
