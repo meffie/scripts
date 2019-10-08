@@ -8,6 +8,7 @@ install:
 	install jumble $(BINDIR)
 	install openafs-release-team-report.sh $(BINDIR)
 	install openafs-wiki-gerrits.py $(BINDIR)
+	install resize-photos $(BINDIR)
 	install rt-query.py $(BINDIR)
 	install taskcolor $(BINDIR)
 	install tasksync $(BINDIR)

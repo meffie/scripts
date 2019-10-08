@@ -1,0 +1,15 @@
+#!/bin/bash
+#
+# A little script to prepare photos for upload to a photo gallery. Scales large
+# photos down to reasonable size for uploading to gallery.
+#
+set -e
+
+size="640x480"
+for photo in *.[jJ][pP][gG]
+do
+    echo "resizing $photo..."
+    resized=$(echo $photo | tr 'A-Z' 'a-z' | sed 's/\.jpg$/-med.jpg/')
+    convert $photo -resize $size $resized
+    rm $photo
+done
