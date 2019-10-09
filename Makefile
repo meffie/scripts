@@ -1,7 +1,7 @@
 BINDIR=$(HOME)/.local/bin
 
 .PHONY: install
-install:
+install: requirements
 	install -d $(BINDIR)
 	install af $(BINDIR)
 	install afsutil-setup.sh $(BINDIR)
@@ -15,3 +15,7 @@ install:
 	install taskcolor $(BINDIR)
 	install tasksync $(BINDIR)
 	install ticket $(BINDIR)
+
+.PHONY: requirements
+requirements:
+	pip install -r requirements.txt
