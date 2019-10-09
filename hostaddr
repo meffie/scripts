@@ -1,10 +1,22 @@
-#!/bin/bash
-# Show my IPv4 address (skipping bridges, etc.)
+#!/usr/bin/env python
 
-ip -oneline route list |
-    grep '^default' |
-    perl -lane 'print $1 if /dev\s(\w+)\s/' |
-    while read dev; do
-        ip -oneline -4 address show dev $dev up |
-            perl -lane 'print $1 if /inet ([\d\.]+)/'
-    done
+import re
+from sh import ip
+
+addrs = []
+devices = []
+
+for route in ip('-oneline', 'route', 'list', _iter=True):
+    m = re.search(r'^default .* dev\s([^\s]+)', route)
+    if m:
+        devices.append(m.group(1))
+
+for device in devices:
+    for address in ip('-oneline', '-4', 'address', 'show', 'dev', device, 'up', _iter=True):
+        m = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', address)
+        if m:
+            addrs.append((m.group(1), device))
+
+for addr in addrs:
+    a,d = addr
+    print(a)
