@@ -1,19 +1,20 @@
 BINDIR=$(HOME)/.local/bin
 BINS= \
-  $(BINDIR)/af \
-  $(BINDIR)/afsutil-setup.sh \
-  $(BINDIR)/afsutil-teardown.sh \
-  $(BINDIR)/apt-get-zoom \
-  $(BINDIR)/gen-virt-lab-cfg.py \
-  $(BINDIR)/hostaddr \
-  $(BINDIR)/jumble \
-  $(BINDIR)/openafs-release-team-report.sh \
-  $(BINDIR)/openafs-wiki-gerrits.py \
-  $(BINDIR)/resize-photos \
-  $(BINDIR)/rt-query.py \
-  $(BINDIR)/taskcolor \
-  $(BINDIR)/tasksync \
-  $(BINDIR)/ticket
+  $(BINDIR)/,, \
+  $(BINDIR)/,af \
+  $(BINDIR)/,aulogin \
+  $(BINDIR)/,ausetup \
+  $(BINDIR)/,auteardown \
+  $(BINDIR)/,gerrits2wiki \
+  $(BINDIR)/,getzoom \
+  $(BINDIR)/,hostaddr \
+  $(BINDIR)/,patchreport \
+  $(BINDIR)/,resizeimages \
+  $(BINDIR)/,rtquery \
+  $(BINDIR)/,taskcolor \
+  $(BINDIR)/,tasksync \
+  $(BINDIR)/,ticket \
+  $(BINDIR)/,vlabcfg
 
 .PHONY: install
 install: .requirements $(BINDIR) $(BINS)
@@ -30,5 +31,5 @@ remove:
 $(BINDIR):
 	install -d $(BINDIR)
 
-$(BINDIR)/%: %
+$(BINDIR)/%: src/%
 	install $< $(BINDIR)

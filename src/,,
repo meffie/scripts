@@ -1,0 +1,17 @@
+#!/bin/sh
+cat << __EOF__
+,af            auto-format text
+,aulogin       afsutil login
+,ausetup       afsutil setup cell
+,auteardown    afsutil teardown cell
+,gerrits2wiki  generate gerrit list page for wiki.openafs.org
+,getzoom       install or update zoom
+,hostaddr      print current host addresses
+,patchreport   generate patch report for openafs release team minutes
+,resizeimages  resize directory of images for web site
+,rtquery       request tracker query
+,taskcolor     change task manager colors
+,tasksync      git pull/push task manager tasks
+,ticket        get request tracker ticket subject by number
+,vlabcfg       generate virt-lab configuration
+__EOF__
