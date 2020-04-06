@@ -18,6 +18,11 @@ BINS= \
 .PHONY: install
 install: .requirements $(BINDIR) $(BINS)
 
+.PHONY: remove
+remove:
+	rm -f $(BINS)
+	rm -f .requirements
+
 .requirements:
 	pip install -r requirements.txt
 	touch .requirements
