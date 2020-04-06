@@ -1,23 +1,29 @@
 BINDIR=$(HOME)/.local/bin
+BINS= \
+  $(BINDIR)/af \
+  $(BINDIR)/afsutil-setup.sh \
+  $(BINDIR)/afsutil-teardown.sh \
+  $(BINDIR)/apt-get-zoom \
+  $(BINDIR)/gen-virt-lab-cfg.py \
+  $(BINDIR)/hostaddr \
+  $(BINDIR)/jumble \
+  $(BINDIR)/openafs-release-team-report.sh \
+  $(BINDIR)/openafs-wiki-gerrits.py \
+  $(BINDIR)/resize-photos \
+  $(BINDIR)/rt-query.py \
+  $(BINDIR)/taskcolor \
+  $(BINDIR)/tasksync \
+  $(BINDIR)/ticket
 
 .PHONY: install
-install: requirements
-	install -d $(BINDIR)
-	install af $(BINDIR)
-	install afsutil-setup.sh $(BINDIR)
-	install afsutil-teardown.sh $(BINDIR)
-	install apt-get-zoom $(BINDIR)
-	install gen-virt-lab-cfg.py $(BINDIR)
-	install hostaddr $(BINDIR)
-	install jumble $(BINDIR)
-	install openafs-release-team-report.sh $(BINDIR)
-	install openafs-wiki-gerrits.py $(BINDIR)
-	install resize-photos $(BINDIR)
-	install rt-query.py $(BINDIR)
-	install taskcolor $(BINDIR)
-	install tasksync $(BINDIR)
-	install ticket $(BINDIR)
+install: .requirements $(BINDIR) $(BINS)
 
-.PHONY: requirements
-requirements:
+.requirements:
 	pip install -r requirements.txt
+	touch .requirements
+
+$(BINDIR):
+	install -d $(BINDIR)
+
+$(BINDIR)/%: %
+	install $< $(BINDIR)
