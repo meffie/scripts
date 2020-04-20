@@ -50,7 +50,8 @@ for version in ('master', 'openafs-stable-1_8_x'):
     print('distro = %s' % os)
     print('''\
 postcreate = ansible-playbook -i {scriptdir}/inventory.sh {playbookdir}/local-dns.yaml
-  {playbookdir}/wait.yaml {playbookdir}/testcell.yaml && ssh %s01 run-openafs-robotest.sh tests
+  {playbookdir}/wait.yaml {playbookdir}/upgrade-kernel.yaml {playbookdir}/testcell.yaml
+  && ssh %s01 run-openafs-robotest.sh tests
 group.afs_cell = 1
 group.afs_clients = 1
 group.afs_kdcs = 1
@@ -64,14 +65,14 @@ var.afs_server_build_force = no
 var.afs_server_build_builddir = /usr/local/src/openafs_server
 var.afs_server_build_destdir = /tmp/openafs_server
 var.afs_server_build_fetch_method = git
-var.afs_server_build_git_repo = git://{ gateway }/openafs
+var.afs_server_build_git_repo = git://git.openafs.org/openafs
 var.afs_server_build_git_ref = %s
 var.afs_client_install_method = rsync
 var.afs_client_build_force = no
-var.afs_client_build_builddir = /usr/local/src/openafs_server
-var.afs_client_build_destdir = /tmp/openafs_server
+var.afs_client_build_builddir = /usr/local/src/openafs_client
+var.afs_client_build_destdir = /tmp/openafs_client
 var.afs_client_build_fetch_method = git
-var.afs_client_build_git_repo = git://{ gateway }/openafs
+var.afs_client_build_git_repo = git://git.openafs.org/openafs
 var.afs_client_build_git_ref = %s''' % (lab, version, version))
     print('')
     count += 1
