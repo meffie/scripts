@@ -1,8 +1,20 @@
 #!/bin/bash
-set -x
+#set -x
 set -e
-rm -f /tmp/zoom.deb
-wget -O /tmp/zoom.deb https://zoom.us/client/latest/zoom_amd64.deb
-sudo apt update
-sudo apt install libxcb-xtest0
-sudo dpkg -i /tmp/zoom.deb
+
+rm -f /tmp/zoom_amd64.deb
+wget -O /tmp/zoom_amd64.deb https://zoom.us/client/latest/zoom_amd64.deb
+
+DOWNLOADED_VERSION=$(dpkg-deb -f /tmp/zoom_amd64.deb | awk '/Version:/ {print $2}')
+INSTALLED_VERSION=$(dpkg-query -s zoom | awk '/Version:/ {print $2}')
+
+if [ "x$DOWNLOADED_VERSION" = "x$INSTALLED_VERSION" ]; then
+    echo "Already updated."
+else
+    if [ "x$INSTALLED_VERSION" = "x" ]; then
+        sudo apt update
+        sudo apt install libxcb-xtest0
+    fi
+    sudo dpkg -i /tmp/zoom_amd64.deb
+    rm -f /tmp/zoom_amd64.deb
+fi
