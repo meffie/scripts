@@ -9,7 +9,7 @@ DOWNLOADED_VERSION=$(dpkg-deb -f /tmp/zoom_amd64.deb | awk '/Version:/ {print $2
 INSTALLED_VERSION=$(dpkg-query -s zoom | awk '/Version:/ {print $2}')
 
 if [ "x$DOWNLOADED_VERSION" = "x$INSTALLED_VERSION" ]; then
-    echo "Already updated."
+    echo "Zoom is already up to date."
 else
     if [ "x$INSTALLED_VERSION" = "x" ]; then
         sudo apt update
