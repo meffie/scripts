@@ -1,0 +1,130 @@
+#!/bin/bash
+# Quick and dirty script to clone guests
+#
+set -e
+#set -x
+
+bridge=vlbr0
+gateway=192.168.123.1
+domain=example.com
+max_guest=12
+
+vmg_make_template()
+{
+    local template="$1"
+    # idempotently:
+    #   kvm-install-vm create -t centos8 a101
+    #   get ip addr (good luck)
+    #   update it with ansible
+    #   shutdown
+    echo todo
+}
+
+vmg_save_mac_address()
+{
+    local name="$1"
+    mkdir -p ~/.vmg
+    virsh dumpxml ${name} |
+      grep 'mac address=' |
+      sed \
+        -e "s/^.*mac address=.//" \
+        -e "s/..>.*$//" \
+    > ~/.vmg/${name}.mac
+}
+
+vmg_last_mac_address()
+{
+    local name="$1"
+    if [ -f ~/.vmg/$name.mac ]; then
+        cat ~/.vmg/$name.mac
+    fi
+}
+
+vmg_make_guest()
+{
+    local template="$1"
+    local name="$2"
+
+    if [ -f ~/virt/vms/$template/$name.qcow2 ]; then
+        echo "skipping clone"
+    else
+
+        mac=$(vmg_last_mac_address $name)
+        if [ "x$mac" = "x" ]; then
+            virt-clone --auto-clone -o $template -n $name
+        else
+            virt-clone --auto-clone -o $template -n $name --mac $mac
+        fi
+        vmg_save_mac_address $name
+    fi
+
+    if  virsh list --name | grep -F "$name"; then
+        echo "skipping sysprep"
+    else
+        sudo virt-sysprep \
+            --quiet \
+            --hostname=${name}.${domain} \
+            --operations=defaults,-ssh-hostkeys,-ssh-userdir \
+            --add /home/mmeffie/virt/vms/$template/$name.qcow2
+    fi
+    if virsh list --name --inactive | grep -F "$name"; then
+        virsh start ${name}
+    else
+        echo "skipping start"
+    fi
+    return
+}
+
+vmg_destroy_guest()
+{
+    local name="$1"
+    if virsh list --name | grep -F "$name"; then
+        virsh shutdown $name
+    fi
+    sleep 2
+    virt-destroy $name
+}
+
+vmg_make_guests()
+{
+    vmg_make_template a101
+
+    for i in $(seq 1 $max_guest); do
+        vmg_make_guest a101 $(printf "afs%02d" $i)
+    done
+    sudo systemd-resolve --interface ${bridge} --set-dns ${gateway} --set-domain ${domain}
+}
+
+vmg_destroy_guests()
+{
+    for i in $(seq 1 $max_guest); do
+        vmg_destroy_guest $(printf "afs%02d" $i)
+    done
+}
+
+vmg_update_macs()
+{
+    for i in $(seq 1 $max_guest); do
+        vmg_save_mac_address $(printf "afs%02d" $i)
+    done
+}
+
+cmd="$1"
+case "$cmd" in
+help)
+    echo todo
+    ;;
+new)
+    vmg_make_guests
+    ;;
+rm)
+    vmg_destroy_guests
+    ;;
+mac|macs)
+    vmg_update_macs
+    ;;
+*)
+    echo "usge: vmg new|rm"
+    exit 1
+    ;;
+esac

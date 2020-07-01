@@ -14,7 +14,8 @@ BINS= \
   $(BINDIR)/,taskcolor \
   $(BINDIR)/,tasksync \
   $(BINDIR)/,ticket \
-  $(BINDIR)/,vlabcfg
+  $(BINDIR)/,vlabcfg \
+  $(BINDIR)/vmg \
 
 .PHONY: install
 install: .requirements $(BINDIR) $(BINS)
