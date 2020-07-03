@@ -4,47 +4,105 @@
 set -e
 #set -x
 
-bridge=vlbr0
-gateway=192.168.123.1
-domain=example.com
-max_guest=12
+vmg_prefix=afs
+vmg_guests=12
+vmg_template=base-centos8
+vmg_brige=vlbr0
+vmg_gateway=192.168.123.1
+vmg_domain=example.com
+
+if [ -f ~/.vmgrc ]; then
+    . ~/.vmgrc
+fi
+
+vmg_list_guests()
+{
+    virsh list --name --all | grep -E '^afs[0-9]+$'
+}
+
+vmg_list_templates()
+{
+    virsh list --name --all | grep -E '^base-'
+}
 
 vmg_make_template()
 {
     local template="$1"
-    # idempotently:
-    #   kvm-install-vm create -t centos8 a101
-    #   get ip addr (good luck)
-    #   update it with ansible
-    #   shutdown
-    echo todo
+
+    if [ "x$template" = "x" ]; then
+        template=$vmg_template
+    fi
+
+    if echo $template | grep -q -E '^base-'; then
+        :
+    else
+        echo "template name must start with base-"
+        exit 1
+    fi
+
+    local re=$(printf '^%s$' $template)
+    if virsh list --name --all | grep -q -E "$re"; then
+        echo "skipping make_template"
+        return
+    fi
+
+    local kiv_options="-c 2 -d 10 -m 4096 -t centos8"
+    if [ -f ~/.vmg/base/$template.options ]; then
+        kiv_options=$(cat ~/.vmg/base/$template.options)
+    fi
+
+    kvm-install-vm create $kiv_options $template
+
+    local ip=$(virt-ip -m agent $template)
+    if [ "x$ip" = "x" ]; then
+        echo "unable to find ip"
+        exit 1
+    fi
+
+    mkdir -p ~/.vmg/base
+    echo "$template ansible_host=$ip" > ~/.vmg/base/$template.hosts
+    ( cd ~/src/sna-devlab && ansible-playbook -i ~/.vmg/base/$template.hosts --vault-password-file=.vault_pass update.yaml )
+    virsh shutdown $template
+    sleep 5
 }
 
 vmg_save_mac_address()
 {
     local name="$1"
-    mkdir -p ~/.vmg
+    mkdir -p ~/.vmg/guest
     virsh dumpxml ${name} |
       grep 'mac address=' |
       sed \
         -e "s/^.*mac address=.//" \
         -e "s/..>.*$//" \
-    > ~/.vmg/${name}.mac
+    > ~/.vmg/guest/${name}.mac
 }
 
 vmg_last_mac_address()
 {
     local name="$1"
-    if [ -f ~/.vmg/$name.mac ]; then
-        cat ~/.vmg/$name.mac
+    if [ -f ~/.vmg/guest/$name.mac ]; then
+        cat ~/.vmg/guest/$name.mac
     fi
 }
 
 vmg_make_guest()
 {
-    local template="$1"
-    local name="$2"
+    local number="$1"
+    local template="$2"
+    local name
 
+    if echo "$number" | grep -q -E '^[0-9]+$'; then
+        name=$(printf "%s%02d" $vmg_prefix $number)
+    else
+        echo "usage: make_guest <number> [template]" >&2
+        return
+    fi
+    if [ "x$template" = "x" ]; then
+        template=$vmg_template
+    fi
+
+    vmg_make_template $template
     if [ -f ~/virt/vms/$template/$name.qcow2 ]; then
         echo "skipping clone"
     else
@@ -58,16 +116,16 @@ vmg_make_guest()
         vmg_save_mac_address $name
     fi
 
-    if  virsh list --name | grep -F "$name"; then
+    if  virsh list --name | grep -q -F "$name"; then
         echo "skipping sysprep"
     else
         sudo virt-sysprep \
             --quiet \
-            --hostname=${name}.${domain} \
+            --hostname=${name}.${vmg_domain} \
             --operations=defaults,-ssh-hostkeys,-ssh-userdir \
             --add /home/mmeffie/virt/vms/$template/$name.qcow2
     fi
-    if virsh list --name --inactive | grep -F "$name"; then
+    if virsh list --name --inactive | grep -q -F "$name"; then
         virsh start ${name}
     else
         echo "skipping start"
@@ -77,54 +135,98 @@ vmg_make_guest()
 
 vmg_destroy_guest()
 {
-    local name="$1"
-    if virsh list --name | grep -F "$name"; then
-        virsh shutdown $name
+    local number="$1"
+
+    if echo "$number" | grep -q -E '^[0-9]+$'; then
+        name=$(printf "afs%02d" $number)
+    else
+        echo "usage: destroy_guest <number>" >&2
+        return
+    fi
+    local name=$(printf "afs%02d" $number)
+
+    if virsh list --name | grep -q -F "$name"; then
+        if virsh list --name | grep -q -F "$name"; then
+            virsh shutdown $name
+        fi
     fi
     sleep 2
-    virt-destroy $name
+    if virsh list --name --all | grep -q -F "$name"; then
+        virt-destroy $name
+    fi
 }
 
 vmg_make_guests()
 {
-    vmg_make_template a101
+    local guests="$1"
+    local template="$2"
 
-    for i in $(seq 1 $max_guest); do
-        vmg_make_guest a101 $(printf "afs%02d" $i)
+    if [ "x$guests" = "x" ]; then
+        guests=$vmg_guests
+    fi
+    if [ "x$template" = "x" ]; then
+        template=$vmg_template
+    fi
+
+    if echo "$guests" | grep -q -E '^[0-9]+$'; then
+        :
+    else
+        echo "usage: make_guests [<number>]" >&2
+        return
+    fi
+
+    for i in $(seq 1 $guests); do
+        vmg_make_guest $i $template
     done
-    sudo systemd-resolve --interface ${bridge} --set-dns ${gateway} --set-domain ${domain}
+    sudo systemd-resolve --interface ${vmg_brige} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
 }
 
 vmg_destroy_guests()
 {
-    for i in $(seq 1 $max_guest); do
-        vmg_destroy_guest $(printf "afs%02d" $i)
+    local name
+    local number
+
+    for name in $(virsh list --name --all | grep -E '^afs[0-9]+$'); do
+        number=$(echo $name | sed -e 's/^afs//')
+        vmg_destroy_guest $number
     done
 }
 
 vmg_update_macs()
 {
-    for i in $(seq 1 $max_guest); do
-        vmg_save_mac_address $(printf "afs%02d" $i)
+    for name in $(virsh list --name --all | grep -E '^afs[0-9]+$'); do
+        vmg_save_mac_address $(printf "%s%02d" $vmg_prefix $i)
     done
+}
+
+vmg_help()
+{
+    cat <<__EOF__
+help
+list-guests
+list-templates
+make-template <template>
+make-guest <number> [<template>]
+make-guests [<number_of_guests>]
+destroy-guest <number>
+destroy-guests
+update-macs
+__EOF__
 }
 
 cmd="$1"
 case "$cmd" in
-help)
-    echo todo
-    ;;
-new)
-    vmg_make_guests
-    ;;
-rm)
-    vmg_destroy_guests
-    ;;
-mac|macs)
-    vmg_update_macs
-    ;;
+help)              vmg_help ;;
+list-guests)       vmg_list_guests ;;
+list-templates)    vmg_list_templates ;;
+make-template)     vmg_make_template $2 ;;
+make-guest)        vmg_make_guest $2 $3 ;;
+make-guests)       vmg_make_guests $2 $3 ;;
+destroy-guest)     vmg_destroy_guest $2 ;;
+destroy-guests)    vmg_destroy_guests ;;
+update-macs)       vmg_update_macs ;;
 *)
-    echo "usge: vmg new|rm"
+    vmg_help >&2
     exit 1
     ;;
 esac
