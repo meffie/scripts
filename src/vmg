@@ -48,12 +48,21 @@ vmg_make_template()
 
     local kiv_options="-c 2 -d 10 -m 4096 -t centos8"
     if [ -f ~/.vmg/base/$template.options ]; then
-        kiv_options=$(cat ~/.vmg/base/$template.options)
+        kiv_options="$(cat ~/.vmg/base/$template.options)"
     fi
 
     kvm-install-vm create $kiv_options $template
 
-    local ip=$(virt-ip -m agent $template)
+    local ip
+    for retry in {1..30}; do
+        set +e
+        ip=$(virt-ip -m agent $template)
+        set -e
+        if [ "x$ip" != "x" ]; then
+            break
+        fi
+        sleep 2
+    done
     if [ "x$ip" = "x" ]; then
         echo "unable to find ip"
         exit 1
@@ -156,6 +165,41 @@ vmg_destroy_guest()
     fi
 }
 
+vmg_generate_makefile()
+{
+    local output="$1"
+    local guests="$2"
+    local template="$3"
+    local i
+    local names=""
+
+    for i in $(seq 1 $guests); do
+        local name=$(printf "afs%02d" $i)
+        names="$names $name"
+    done
+
+    cat <<__EOF__ >$output
+.PHONY: all
+all: $names
+	sudo systemd-resolve --interface ${vmg_brige} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
+
+.PHONY: $template
+$template:
+	vmg make-template $template
+
+__EOF__
+
+    for i in $(seq 1 $guests); do
+        local name=$(printf "afs%02d" $i)
+        cat <<__EOF__ >>$output
+.PHONY: $name
+$name: $template
+	vmg make-guest $i $template
+__EOF__
+    done
+
+}
+
 vmg_make_guests()
 {
     local guests="$1"
@@ -175,10 +219,15 @@ vmg_make_guests()
         return
     fi
 
-    for i in $(seq 1 $guests); do
-        vmg_make_guest $i $template
-    done
-    sudo systemd-resolve --interface ${vmg_brige} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
+    if [ "x$VMG_PARALLEL" = "x" ]; then
+        for i in $(seq 1 $guests); do
+            vmg_make_guest $i $template
+        done
+        sudo systemd-resolve --interface ${vmg_brige} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
+    else
+        vmg_generate_makefile /tmp/Makefile.vmg $guests $template
+        make -j4 -O -f /tmp/Makefile.vmg
+    fi
 }
 
 vmg_destroy_guests()
@@ -187,7 +236,7 @@ vmg_destroy_guests()
     local number
 
     for name in $(virsh list --name --all | grep -E '^afs[0-9]+$'); do
-        number=$(echo $name | sed -e 's/^afs//')
+        number=$(echo $name | sed -e 's/^afs0*//')
         vmg_destroy_guest $number
     done
 }
