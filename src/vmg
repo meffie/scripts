@@ -7,7 +7,7 @@ set -e
 vmg_prefix=afs
 vmg_guests=12
 vmg_template=base-centos8
-vmg_brige=vlbr0
+vmg_bridge=vlbr0
 vmg_gateway=192.168.123.1
 vmg_domain=example.com
 
@@ -69,49 +69,48 @@ vmg_make_template()
 vmg_save_mac_address()
 {
     local name="$1"
-    mkdir -p ~/.vmg/guest
+    mkdir -p $HOME/.vm
     virsh dumpxml ${name} |
       grep 'mac address=' |
       sed \
         -e "s/^.*mac address=.//" \
         -e "s/..>.*$//" \
-    > ~/.vmg/guest/${name}.mac
+    > $HOME/.vm/${name}.mac
 }
 
 vmg_last_mac_address()
 {
     local name="$1"
-    if [ -f ~/.vmg/guest/$name.mac ]; then
-        cat ~/.vmg/guest/$name.mac
+    if [ -f $HOME/.vm/$name.mac ]; then
+        cat $HOME/.vm/$name.mac
     fi
 }
 
 vmg_make_guest()
 {
-    local number="$1"
+    local name="$1"
     local template="$2"
-    local name
 
-    if echo "$number" | grep -q -E '^[0-9]+$'; then
-        name=$(printf "%s%02d" $vmg_prefix $number)
-    else
-        echo "usage: make_guest <number> [template]" >&2
-        return
+    if [ "x$name" = "x" ]; then
+        echo "usage: make-guest <name> [<template>]" >&2
+        return 1
     fi
+
     if [ "x$template" = "x" ]; then
         template=$vmg_template
     fi
 
     vmg_make_template $template
-    if [ -f ~/virt/vms/$template/$name.qcow2 ]; then
+    local image="/var/lib/libvirt/images/$name.qcow2"
+    if [ -f $image ]; then
         echo "skipping clone"
     else
 
         mac=$(vmg_last_mac_address $name)
         if [ "x$mac" = "x" ]; then
-            virt-clone --auto-clone -o $template -n $name
+            virt-clone --auto-clone -o $template -n $name -f $image
         else
-            virt-clone --auto-clone -o $template -n $name --mac $mac
+            virt-clone --auto-clone -o $template -n $name -f $image --mac $mac
         fi
         vmg_save_mac_address $name
     fi
@@ -119,11 +118,13 @@ vmg_make_guest()
     if  virsh list --name | grep -q -F "$name"; then
         echo "skipping sysprep"
     else
-        sudo virt-sysprep \
+        sudo chown $USER $image
+        chmod 0664 $image
+        virt-sysprep \
             --quiet \
             --hostname=${name}.${vmg_domain} \
             --operations=defaults,-ssh-hostkeys,-ssh-userdir \
-            --add /home/mmeffie/virt/vms/$template/$name.qcow2
+            --add $image
     fi
     if virsh list --name --inactive | grep -q -F "$name"; then
         virsh start ${name}
@@ -135,23 +136,19 @@ vmg_make_guest()
 
 vmg_destroy_guest()
 {
-    local number="$1"
+    local name="$1"
 
-    if echo "$number" | grep -q -E '^[0-9]+$'; then
-        name=$(printf "afs%02d" $number)
-    else
-        echo "usage: destroy_guest <number>" >&2
-        return
+    if [ "x$name" = "x" ]; then
+        echo "usage: destroy-guest <name>" >&2
+        return 1
     fi
-    local name=$(printf "afs%02d" $number)
 
-    if virsh list --name | grep -q -F "$name"; then
-        if virsh list --name | grep -q -F "$name"; then
-            virsh shutdown $name
-        fi
-    fi
-    sleep 2
     if virsh list --name --all | grep -q -F "$name"; then
+
+        virsh snapshot-list $name --name | grep -v '^$' | while read snapshot; do
+            virsh snapshot-delete $name $snapshot
+        done
+
         virt-destroy $name
     fi
 }
@@ -176,19 +173,19 @@ vmg_make_guests()
     fi
 
     for i in $(seq 1 $guests); do
-        vmg_make_guest $i $template
+        local name=$(printf "%s%02d" $vmg_prefix $i)
+        vmg_make_guest $name $template
     done
-    sudo systemd-resolve --interface ${vmg_brige} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
+    sudo systemd-resolve --interface ${vmg_bridge} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
 }
 
 vmg_destroy_guests()
 {
     local name
-    local number
 
     for name in $(virsh list --name --all | grep -E '^afs[0-9]+$'); do
-        number=$(echo $name | sed -e 's/^afs//')
-        vmg_destroy_guest $number
+        #number=$(echo $name | sed -e 's/^afs0*//')
+        vmg_destroy_guest $name
     done
 }
 
@@ -199,6 +196,34 @@ vmg_update_macs()
     done
 }
 
+vmg_snapshot()
+{
+    local name="$1"
+    virsh shutdown $name
+    sleep 2
+    virsh snapshot $name
+    virsh start $name
+    sleep 2
+}
+
+vmg_restore()
+{
+    local name="$1"
+}
+
+vmg_snapshot_all()
+{
+    for name in $(virsh list --name --all | grep -E '^afs[0-9]+$'); do
+        echo todo
+    done
+}
+
+vmg_bump()
+{
+    sudo systemd-resolve --interface ${vmg_bridge} --set-dns ${vmg_gateway} --set-domain ${vmg_domain}
+}
+
+
 vmg_help()
 {
     cat <<__EOF__
@@ -206,11 +231,13 @@ help
 list-guests
 list-templates
 make-template <template>
-make-guest <number> [<template>]
-make-guests [<number_of_guests>]
-destroy-guest <number>
+make-guest <name> [<template>]
+make-guests <number_of_guests> [<template>]
+destroy-guest <name>
 destroy-guests
 update-macs
+snapshot
+bump
 __EOF__
 }
 
@@ -225,6 +252,8 @@ make-guests)       vmg_make_guests $2 $3 ;;
 destroy-guest)     vmg_destroy_guest $2 ;;
 destroy-guests)    vmg_destroy_guests ;;
 update-macs)       vmg_update_macs ;;
+snapshot)          vmg_snapshot ;;
+bump)              vmg_bump ;;
 *)
     vmg_help >&2
     exit 1
