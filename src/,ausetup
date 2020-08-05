@@ -1,9 +1,14 @@
 #!/bin/sh
 
 HOST=`hostname`
+if [ "x$VIRTUAL_ENV" = "x" ]; then
+    AFSUTIL="afsutil"
+else
+    AFSUTIL="$VIRTUAL_ENV/bin/python $VIRTUAL_ENV/bin/afsutil"
+fi
 
 # Installing
-/usr/bin/sudo -n afsutil install \
+/usr/bin/sudo -n $AFSUTIL install \
    --components server client \
    --dist transarc \
    --realm EXAMPLE.COM \
@@ -14,13 +19,13 @@ HOST=`hostname`
    -o bosserver=
 
 # Creating service key
-/usr/bin/sudo -n afsutil ktcreate \
+/usr/bin/sudo -n $AFSUTIL ktcreate \
   --realm EXAMPLE.COM \
   --cell example.com \
   --keytab /tmp/afsutil/fake.keytab
 
 # Setting service key
-/usr/bin/sudo -n afsutil ktsetkey \
+/usr/bin/sudo -n $AFSUTIL ktsetkey \
   --realm EXAMPLE.COM \
   --cell example.com \
   --keytab /tmp/afsutil/fake.keytab \
@@ -28,10 +33,10 @@ HOST=`hostname`
   --paths asetkey=/usr/afs/bin/asetkey
 
 # Starting servers
-/usr/bin/sudo -n afsutil start server
+/usr/bin/sudo -n $AFSUTIL start server
 
 # Creating new cell
-/usr/bin/sudo -n afsutil newcell \
+/usr/bin/sudo -n $AFSUTIL newcell \
   --cell example.com \
   --admin afsadmin \
   --realm EXAMPLE.COM \
@@ -57,10 +62,10 @@ HOST=`hostname`
   -p aklog=/usr/local/bin/aklog-1.6
 
 # Starting clients
-/usr/bin/sudo -n afsutil start client
+/usr/bin/sudo -n $AFSUTIL start client
 
 # Mounting root volumes
-afsutil mtroot \
+$AFSUTIL mtroot \
   --realm EXAMPLE.COM \
   --cell example.com \
   --admin afsadmin \

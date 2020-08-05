@@ -1,5 +1,12 @@
 #!/bin/sh
-afsutil ktlogin \
+
+if [ "x$VIRTUAL_ENV" = "x" ]; then
+    AFSUTIL="afsutil"
+else
+    AFSUTIL="$VIRTUAL_ENV/bin/python $VIRTUAL_ENV/bin/afsutil"
+fi
+
+$AFSUTIL ktlogin \
   --realm EXAMPLE.COM \
   --cell example.com \
   --user afsadmin \
