@@ -1,0 +1,354 @@
+#!/bin/bash
+#
+# vup - libvirt virtual machine up
+#
+# Run virt-builder, virt-sysprep, and virt-install to bring up virtual machines
+# quickly, especially on subsequent instantiations, on a local libvirt
+# hypervisor.
+#
+
+set -e
+
+vup_name=
+vup_template=
+vup_template_prefix="TEMPLATE-"
+vup_os=
+vup_images=/var/lib/libvirt/images
+vup_cache=$HOME/.cache/vup
+vup_root_passwd=$HOME/.config/vup/root_passwd
+vup_user=devlab
+vup_user_passwd=$HOME/.config/vup/user_passwd
+vup_user_ssh_pub=$HOME/.config/vup/user.pub
+vup_size=
+vup_memory=512
+vup_cpus=1
+vup_mac=
+vup_domain=
+vup_hostname=
+vup_address=
+vup_quiet="no"
+vup_console="no"
+vup_login="no"
+vup_no_clone="no"
+
+# Variable virt* arguments.
+vup_vb_source_args=()
+vup_vb_extra_args=()
+vup_sp_extra_args=()
+vup_vi_extra_args=()
+vup_vc_extra_args=()
+
+# Site specific defaults.
+if [ -f $HOME/.config/vup/vup.cfg ]; then
+    . $HOME/.config/vup/vup.cfg
+fi
+
+die() {
+    echo "$@" >&2
+    exit 1
+}
+
+vup_usage() {
+    local code=0
+    if [ ! -z "$1" ]; then
+        echo "error: $1"
+        echo ""
+        code=1
+    fi
+    cat <<__EOF__
+usage: vup <name> [options]
+       vup --login <name>
+       vup --list
+
+options:
+    --template <template>  virt-builder template name
+    --os <os>              OS name; See "osinfo-query os" for names
+    --size <disksize>      Virtual machine disk size; e.g. --size 10G
+    --memory <size>        Virtual machine memory size in M; e.g. --memory 1024
+    --cpus <number>        Number of cpus; default is 1
+    --domain <domain>      DNS domain name; e.g. --domain example.com
+    --list                 List virt-builder templates only.
+    --no-clone             Build the template instance only.
+    --console              Drop in to serial console after starting; control-[ to exit
+    --login                Login with ssh after address is found
+    --debug                Turn on debug tracing
+__EOF__
+    exit $code
+}
+
+vup_list() {
+    virt-builder "${vup_vb_source_args[@]}" --list
+    exit 0
+}
+
+vup_wait_for_ip() {
+    local name="$1"
+    local retries=60
+    local ia=
+    local ip=
+    local last_ia=
+
+    while [ $retries -gt 0 ]; do
+        ia=$(virsh domifaddr --full --source agent $name 2>&1 || true)
+        ip=$(echo "$ia" |
+             awk '$1!="lo" && $3=="ipv4" {print $4}' |
+             head -1 |
+             sed -e "s@/[0-9]*@@")
+        if [ "${vup_quiet}" = "no" ]; then
+            if [ "x$ia" != "x$last_ia" ]; then
+                echo ""
+                echo "$ia" | grep -v "Failed to query" | sed -e "s/error: Guest agent is not responding: //"
+            else
+                echo -n "."
+            fi
+        fi
+        if [ ! -z $ip ]; then
+            vup_address="$ip"
+            break
+        fi
+        sleep 2
+        retries=$((retries - 1))
+        last_ia=$ia
+    done
+    if [ "${vup_quiet}" = "no" ]; then
+        echo ""
+    fi
+}
+
+vup_login() {
+    if [ -z "${vup_address}" ]; then
+        vup_address=$(cat "${vup_cache}/${vup_name}/ip")
+    fi
+    ssh -o UserKnownHostsFile=/dev/null \
+        -o StrictHostKeyChecking=no \
+        -o LogLevel=ERROR \
+        -l "${vup_user}" "${vup_address}"
+}
+
+
+# Command line arguments.
+while :; do
+  case $1 in
+    -h|--help)      vup_usage ;;
+    -l|--list)      vup_list ;;
+    -t|--template)  vup_template="$2"; shift ;;
+    -n|--name)      vup_name="$2"; shift ;;
+    --os)           vup_os=$2; shift ;;
+    --size)         vup_size="$2"; shift ;;
+    --memory)       vup_memory="$2"; shift ;;
+    --cpus)         vup_cpus="$2"; shift ;;
+    --domain)       vup_domian="$2"; shift ;;
+    --no-clone)     vup_no_clone="yes" ;;
+    --console)      vup_console="yes" ;;
+    --login)        vup_login="yes" ;;
+    --debug)        set -x; ;;
+    --quiet)        vup_quiet="yes"; ;;
+    --)             shift; break ;;
+    -?*)            vup_usage "invalid option: $1" ;;
+    "")             break ;;
+    *)              vup_name="$1" ;;
+  esac
+  shift
+done
+if [ -z "${vup_name}" -a "${vup_no_clone}" = "no" ]; then
+    vup_usage "<name> or --list is required."
+fi
+if [ -z "${vup_template}" -a "${vup_login}" = "no" ]; then
+    vup_usage "<template> is required."
+fi
+test ! -z "${vup_memory}"   || vup_usage "--memory requires a value."
+test ! -z "${vup_cpus}"     || vup_usage "--cpus requires a value."
+test -z "$3" || vup_usage "Too many arguments."
+
+# Special case: --login without --template, just try to login.
+if [ -z "${vup_template}" -a "${vup_login}" = "yes" ]; then
+    if virsh list --name --state-running | grep -q "^${vup_name}$"; then
+        vup_login
+        exit 0
+    else
+        die "Instance ${vup_name} is not running."
+    fi
+fi
+
+if [ "${vup_quiet}" = "yes" ]; then
+    vup_vb_extra_args+=("--quiet")
+    vup_sp_extra_args+=("--quiet")
+fi
+
+# Trim the template instance prefix if given.
+vup_template=$(echo $vup_template | sed -e "s/^$vup_template_prefix//")
+
+# Template specific options.
+case "${vup_template}" in
+*centos*)
+    vup_vb_extra_args+=(
+        "--firstboot-command" "systemctl enable serial-getty@ttyS0.service"
+        "--firstboot-command" "systemctl start serial-getty@ttyS0.service"
+        "--install" "sudo"
+        "--selinux-relabel")
+    ;;
+*debian*)
+    vup_vb_extra_args+=("--install" "qemu-guest-agent,sudo")
+    # Workaround: "--edit" "/etc/network/interfaces:s/ens2/ens3/"
+    ;;
+*)
+    ;;
+esac
+
+# Default os names for templates I commonly use.
+# Supply --os <value> for other templates or to override these.
+# See osinfo-query os for values.
+if [ -z "${vup_os}" ]; then
+    case "${vup_template}" in
+    *centos-7) vup_os="centos7.0" ;;
+    *centos-8*) vup_os="centos8" ;;
+    *debian-9) vup_os="debian9" ;;
+    *debian-10) vup_os="debian10" ;;
+    *)
+        echo "! Warning: No os type defined for ${vup_template}. Use --os to specify one." >&2
+        ;;
+    esac
+fi
+
+if [ ! -z "$vup_os" ]; then
+    vup_vi_extra_args+=("--os-variant" "${vup_os}")
+fi
+
+# Create our destination directory, if it is missing.
+mkdir -p "${vup_images}"
+
+vup_template_file="${vup_images}/${vup_template_prefix}${vup_template}.qcow2"
+if [ -f "$vup_template_file" ]; then
+    echo "= Template image $vup_template_file already exists."
+else
+    if [ ! -z "${vup_size}" ]; then
+        vup_vb_extra_args+=("--size" "${vup_size}")
+    fi
+    echo "= Building template image ${vup_template_file}."
+    virt-builder \
+      "${vup_template}" \
+      "${vup_vb_source_args[@]}" \
+      --output "${vup_template_file}" \
+      --format "qcow2" \
+      --run-command "ssh-keygen -A" \
+      --root-password "file:${vup_root_passwd}" \
+      --run-command "id -u ${vup_user} || useradd -m -s /bin/bash ${vup_user}" \
+      --run-command "echo ${vup_user}:${vup_user_passwd} | chpasswd" \
+      --ssh-inject "${vup_user}:file:${vup_user_ssh_pub}" \
+      --run-command "mkdir -p /etc/sudoers.d" \
+      --write "/etc/sudoers.d/99-sna-devlab:${vup_user} ALL=(ALL)  NOPASSWD: ALL" \
+      "${vup_vb_extra_args[@]}"
+fi
+
+# The image may need to do a selinux relabel on the first boot which can take a
+# sigficant amount of time.  If we just copy the template image, we will incur
+# a significant first boot delay on each instance clone. So boot the template
+# once and then shut it down for cloning. This also lets us boot the template
+# instance later if we need to do any manual changes in the template.
+vup_template_instance="${vup_template_prefix}${vup_template}"
+if virsh list --all --name | grep -q "^${vup_template_instance}$"; then
+    echo "= Template instance ${vup_template_instance} already exists."
+else
+    echo "= Creating template instance ${vup_template_instance}."
+    virt-install \
+      --import \
+      --name "${vup_template_instance}" \
+      --disk "${vup_template_file}" \
+      --memory "${vup_memory}" \
+      --noautoconsole \
+      --graphics none \
+      "${vup_vi_extra_args[@]}"
+
+    echo "= Starting template instance ${vup_template_instance} first boot..."
+    vup_wait_for_ip "${vup_template_instance}"
+fi
+
+if virsh domstate "${vup_template_instance}" | grep -q "running"; then
+    echo "= Shutting down template instance ${vup_template_instance}..."
+    virsh shutdown "${vup_template_instance}"
+    while :; do
+        if virsh list --name --state-shutoff | grep -q "^${vup_template_instance}$"; then
+            break
+        else
+            sleep 2
+        fi
+    done
+fi
+
+if [ "x${vup_no_clone}" = "xyes" ]; then
+    echo "= Skipping clone; --no-clone was specified."
+    exit 0
+fi
+
+vup_image_file="${vup_images}/${vup_name}.qcow2"
+if virsh list --all --name | grep -q "^$vup_name$"; then
+    echo "= Instance ${vup_name} already exists."
+else
+    if [ -z "$vup_domain" ]; then
+        vup_hostname="${vup_name}"
+    else
+        vup_hostname="${vup_name}.${vup_domain}"
+    fi
+    if [ -z "${vup_mac}" -a -f "${vup_cache}/${vup_name}/mac" ]; then
+        vup_mac=$(cat "${vup_cache}/${vup_name}/mac")
+    fi
+    if [ ! -z "${vup_mac}" ]; then
+        vup_vi_extra_args+=("--mac" "${vup_mac}")
+    fi
+
+    echo "= Cloning ${vup_template_file} to instance ${vup_image_file}."
+    cp "${vup_template_file}" "${vup_image_file}"
+
+    echo "= Preparing image ${vup_image_file}."
+    virt-sysprep \
+      --add "${vup_image_file}" \
+      --hostname "${vup_hostname}" \
+      --operations "defaults,-ssh-hostkeys,-ssh-userdir" \
+      "${vup_sp_extra_args[@]}"
+
+    echo "= Importing instance ${vup_name}."
+    virt-install \
+      --import \
+      --name "${vup_name}" \
+      --disk "${vup_image_file}" \
+      --memory "${vup_memory}" \
+      --vcpus "${vup_cpus}" \
+      --graphics none \
+      --noautoconsole \
+      --autostart \
+      "${vup_vi_extra_args[@]}"
+fi
+
+if virsh domstate "${vup_name}" | grep -q "running"; then
+    echo "= Instance ${vup_name} is already running"
+else
+    echo "= Starting instance ${vup_name}."
+    virsh start "${vup_name}"
+fi
+
+# Save the mac for next generation of this instance name.
+vup_mac=$(virsh dumpxml "${vup_name}" |
+          grep '<mac address=' |
+          sed -e "s@.*<mac address='@@; s@'/>.*@@" |
+          head -1)
+echo "= Mac address of ${vup_name} is ${vup_mac}"
+mkdir -p "${vup_cache}/${vup_name}"
+echo "${vup_mac}" > "${vup_cache}/${vup_name}/mac"
+
+if [ "${vup_console}" = "yes" ]; then
+    virsh console "${vup_name}"
+else
+    echo "= Waiting for IP address of instance ${vup_name}"
+    vup_wait_for_ip ${vup_name}
+    if [ -z "${vup_address}" ]; then
+        echo "! Failed to get ${vup_name} IP address."
+    else
+        echo "= IP address of ${vup_name} is ${vup_address}"
+        mkdir -p "${vup_cache}/${vum_name}"
+        echo "${vup_address}" > "${vup_cache}/${vup_name}/ip"
+        echo "= ${vup_name} is up"
+    fi
+    if [ "$vup_login" = "yes" ]; then
+        vup_login
+    fi
+fi
