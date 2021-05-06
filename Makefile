@@ -26,7 +26,7 @@ remove:
 	rm -f .requirements
 
 .requirements:
-	pip install -r requirements.txt
+	python3 -m pip install --user -r requirements.txt
 	touch .requirements
 
 $(BINDIR):
