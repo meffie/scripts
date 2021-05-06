@@ -1,35 +1,40 @@
 #!/bin/bash
+#
+# Generate the patch report for openafs release team notes
+# with git gerrit-query.
+#
 set -e
 
-BRANCHES="openafs-stable-1_6_x openafs-stable-1_8_x master"
-SINCE=$(date --date='7 days ago' '+%s')
+query() {
+  local state="$1"
+  local branch="$2"
+  local since="$3"
 
-report_submitted() {
-    branch=$1
-    git gerrit-query --format="{created} {number} {subject}" branch:${branch} NOT status:abandoned |
-    while read created_date created_time number subject; do
-        timestamp=$(date --date="$created_date $created_time" "+%s")
-        if [ $timestamp -gt $SINCE ]; then
-            echo "$number $subject"
-        fi
-    done
+  case "$state" in
+  merged) heading="Merged onto '${branch}' branch since ${since}" ;;
+  open)   heading="Updated for '${branch}' branch since ${since}" ;;
+  esac
+
+  local results=$(git gerrit-query is:$state branch:$branch since:$since)
+  if [ ! -z "$results" ]; then
+    cat <<__EOF__
+${heading}:
+
+$results
+
+__EOF__
+  fi
 }
 
-report_merged() {
-    branch=$1
-    git gerrit-log report/merged/${branch}..origin/${branch}
-    git branch --no-track --force report/merged/$branch origin/${branch}
+report() {
+  local since=$(date --date="${1:-7 days ago}" "+%Y-%m-%d")
+
+  for branch in openafs-stable-1_6_x openafs-stable-1_8_x master; do
+    query merged $branch $since
+    query open $branch $since
+  done
 }
 
-cd ~/src/openafs
-git fetch origin
-for branch in ${BRANCHES}; do
-    echo "Recently submitted for branch '${branch}':"
-    echo ""
-    report_submitted $branch
-    echo ""
-    echo "Recently merged onto branch '${branch}':"
-    echo ""
-    report_merged $branch
-    echo ""
-done
+cd $HOME/src/openafs
+git fetch --quiet origin
+report $1
