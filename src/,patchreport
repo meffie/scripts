@@ -27,7 +27,7 @@ __EOF__
 }
 
 report() {
-  local since=$(date --date="${1:-7 days ago}" "+%Y-%m-%d")
+  local since=$(date --date="${1} weeks ago" "+%Y-%m-%d")
 
   for branch in openafs-stable-1_6_x openafs-stable-1_8_x master; do
     query merged $branch $since
@@ -37,4 +37,4 @@ report() {
 
 cd $HOME/src/openafs
 git fetch --quiet origin
-report $1
+report ${1:-1}
