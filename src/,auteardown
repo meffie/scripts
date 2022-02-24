@@ -1,21 +1,21 @@
 #!/bin/sh
 #
-# afsutil-teardown - teardown a test cell
+# teardown a test cell
 #
-if [ "x$VIRTUAL_ENV" = "x" ]; then
-    AFSUTIL="afsutil"
-else
-    AFSUTIL="$VIRTUAL_ENV/bin/python $VIRTUAL_ENV/bin/afsutil"
-fi
+
+PYTHONPATH="$(pwd)/.venv/lib/python2.7/site-packages"
+PYTHON="$(pwd)/.venv/bin/python2"
+AFSUTIL="$(pwd)/.venv/bin/afsutil"
+SUDO_AFSUTIL="/usr/bin/sudo -n PYTHONPATH=$PYTHONPATH $PYTHON $AFSUTIL"
 
 # Stopping clients
-/usr/bin/sudo -n $AFSUTIL stop client
+$SUDO_AFSUTIL stop client
 
 # Stopping servers
-/usr/bin/sudo -n $AFSUTIL stop server
+$SUDO_AFSUTIL stop server
 
 # Uninstalling
-/usr/bin/sudo -n $AFSUTIL remove --dist transarc --purge
+$SUDO_AFSUTIL remove --dist transarc --purge
 
 # Removing service key
-/usr/bin/sudo -n $AFSUTIL ktdestroy --keytab /tmp/afsrobot/fake.keytab --force
+$SUDO_AFSUTIL ktdestroy --keytab /tmp/afsrobot/fake.keytab --force

@@ -1,10 +1,9 @@
 #!/bin/sh
 
-if [ "x$VIRTUAL_ENV" = "x" ]; then
-    AFSUTIL="afsutil"
-else
-    AFSUTIL="$VIRTUAL_ENV/bin/python $VIRTUAL_ENV/bin/afsutil"
-fi
+PYTHONPATH="$(pwd)/.venv/lib/python2.7/site-packages"
+PYTHON="$(pwd)/.venv/bin/python2"
+AFSUTIL="$(pwd)/.venv/bin/afsutil"
+SUDO_AFSUTIL="/usr/bin/sudo -n PYTHONPATH=$PYTHONPATH $PYTHON $AFSUTIL"
 
 $AFSUTIL ktlogin \
   --realm EXAMPLE.COM \
