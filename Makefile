@@ -2,9 +2,6 @@ BINDIR=$(HOME)/.local/bin
 BINS= \
   $(BINDIR)/,, \
   $(BINDIR)/,af \
-  $(BINDIR)/,aulogin \
-  $(BINDIR)/,ausetup \
-  $(BINDIR)/,auteardown \
   $(BINDIR)/,gerrits2wiki \
   $(BINDIR)/,getzoom \
   $(BINDIR)/,hostaddr \

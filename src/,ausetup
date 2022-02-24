@@ -1,10 +1,9 @@
 #!/bin/sh
 
 HOST=`hostname`
-PYTHONPATH="$(pwd)/.venv/lib/python2.7/site-packages"
 PYTHON="$(pwd)/.venv/bin/python2"
 AFSUTIL="$(pwd)/.venv/bin/afsutil"
-SUDO_AFSUTIL="/usr/bin/sudo -n PYTHONPATH=$PYTHONPATH $PYTHON $AFSUTIL"
+SUDO_AFSUTIL="/usr/bin/sudo -n $PYTHON $AFSUTIL"
 
 # Installing
 $SUDO_AFSUTIL install \
