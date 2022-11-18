@@ -1,0 +1,215 @@
+#!/usr/bin/python3
+#
+# Create a development branch snapshot with a git tag.
+#
+# A revision number is appended to the tag name each time a snapshot of the
+# branch is taken.  If the branch already has a revision suffix, that number is
+# used for the tag instead.
+#
+# Use --delete to delete the branch after tagging, if it is not the current head.
+# This can be used to archive old development branches.
+#
+# Snapshots are created with lightweight tags (not annotated) to avoid
+# interferring with using git describe to generate version strings.
+#
+# Example workflow:
+#
+#   git checkout -b my-feature
+#   ...work work work ...
+#
+#   git snapshot                       # creates archive/my-feature/1 (tag)
+#   ...work work work ...
+#
+#   git snapshot                       # creates snapshot/my-feature/2 (tag)
+#
+#   git reset --hard snapshot/my-feature/1  # go back to 1
+#   ...work work work ...
+#
+#   git snapshot -d some-changes       # creates snapshot/some-changes/1 (tag)
+#                                      # and removes some-changes (branch)
+#
+#   git tag -l 'snapshot/*'            # list my snapshots
+#
+
+import sys
+import re
+
+try:
+    import click
+except ImportError:
+    print('Please install the "click" package.')
+    sys.exit(1)
+try:
+    import sh
+except ImportError:
+    print('Please install the "sh" package.')
+    sys.exit(1)
+
+
+def fatal(msg):
+    click.echo(msg.rstrip(), err=True)
+    sys.exit(1)
+
+
+def find_snapshots():
+    branches = set()
+    for tag in sh.git('rev-parse', '--symbolic', '--tags', _iter=True):
+        if m := re.search(r'^snapshot/(.+)/\d+$', tag):
+            branches.add(m.group(1))
+    return branches
+
+
+def find_archives():
+    branches = set()
+    for tag in sh.git('rev-parse', '--symbolic', '--tags', _iter=True):
+        if m := re.search(r'^archive/(.+)/\d+', tag):
+            branches.add(m.group(1))
+    return branches
+
+
+def archive_snapshots(branch):
+    branches = find_archives()
+    if branch in branches:
+        fatal(f'Branch "{branch}" already archived!')
+    pattern = f'^snapshot/{branch}/(\d+)$'
+    for tag in sh.git('rev-parse', '--symbolic', '--tags', _iter=True):
+        tag = tag.strip()
+        if m := re.search(pattern, tag):
+            rev = int(m.group(1))
+            sh.git('tag', f'archive/{branch}/{rev}', tag)
+            sh.git('tag', '-d', tag)
+    sh.git('branch', '-D', branch)
+    click.echo(f'Deleted branch "{branch}".')
+    click.echo(f'To restore it:')
+    click.echo(f'    git snapshot --unarchive {branch}')
+
+
+def unarchive_snapshots(branch):
+    if branch not in find_archives():
+        fatal(f'Archived branch "{branch}" not found.')
+    if branch in find_snapshots():
+        fatal(f'Branch "{branch}" already unarchived.')
+    pattern = f'^archive/{branch}/(\d+)$'
+    for tag in sh.git('rev-parse', '--symbolic', '--tags', _iter=True):
+        tag = tag.strip()
+        if m := re.search(pattern, tag):
+            rev = int(m.group(1))
+            sh.git('tag', f'snapshot/{branch}/{rev}', tag)
+            sh.git('tag', '-d', tag)
+    rev = find_current_rev('snapshot', branch)
+    sh.git('branch', branch, f'snapshot/{branch}/{rev}')
+    click.echo(f'Created branch "{branch}".')
+
+
+def purge_archives(branch):
+    if not branch:
+        fatal(f'Specify archived branch to purge.')
+    if branch not in find_archives():
+        fatal(f'Archived branch "{branch}" not found.')
+    if branch in find_snapshots():
+        fatal(f'Branch "{branch}" is unarchived.')
+    current = find_current_rev('archive', branch)
+    pattern = f'^archive/{branch}/(\d+)$'
+    skipped = None
+    deleted = []
+    for tag in sh.git('rev-parse', '--symbolic', '--tags', _iter=True):
+        tag = tag.strip()
+        if m := re.search(pattern, tag):
+            rev = int(m.group(1))
+            if rev == current:
+                skipped = rev
+            else:
+                sh.git('tag', '-d', tag)
+                deleted.append(rev)
+    if deleted:
+        deleted = ', '.join(map(str, sorted(deleted)))
+        click.echo(f'Removed "archive/{branch}/[ {deleted} ]".')
+    if skipped:
+        click.echo(f'Skipped most recent "archive/{branch}/{skipped}".')
+        click.echo(f'To remove it:')
+        click.echo(f'    git tag -d archive/{branch}/{skipped}')
+
+
+def find_current_rev(category, branch):
+    revs = set([0])
+    for tag in sh.git('rev-parse', '--symbolic', '--tags', _iter=True):
+        tag = tag.strip()
+        if m := re.search(f'^{category}/{branch}/(\d+)$', tag):
+            revs.add(int(m.group(1)))
+    return max(revs)
+
+
+def snapshot_exists(branch, rev):
+    try:
+        tag = f'snapshot/{branch}/{rev}'
+        tag_sha1 = sh.git('rev-parse', tag).strip()
+        branch_sha1 = sh.git('rev-parse', branch).strip()
+        if tag_sha1 == branch_sha1:
+            return tag
+    except sh.ErrorReturnCode as e:
+        pass
+    return None
+
+
+@click.command()
+@click.option('--list-snapshots', is_flag=True)
+@click.option('--list-archives', is_flag=True)
+@click.option('--archive', is_flag=True)
+@click.option('--unarchive', is_flag=True)
+@click.option('--purge', is_flag=True)
+@click.argument('branch', required=False)
+def snapshot(list_snapshots, list_archives, archive, unarchive, purge, branch):
+
+    if list_snapshots:
+        for branch in find_snapshots():
+            click.echo(branch)
+        return
+
+    if list_archives:
+        for branch in find_archives():
+            click.echo(branch)
+        return
+
+    if purge:
+        purge_archives(branch)
+        return
+
+    head = sh.git('rev-parse', '--abbrev-ref', 'HEAD').strip()
+    if not branch:
+        if head == 'HEAD':
+            fatal(f'Specify --branch or checkout the branch to be snapshotted.')
+        branch = head
+    if re.search(r'[^a-zA-Z0-9_\-/]', branch):
+        fatal(f'Invalid characters in branch name "{branch}".')
+    if branch in ('master', 'main'):
+        fatal(f'Refusing to snapshot non-topic branch "{branch}".')
+    if head == branch and archive:
+        fatal(f'Unable to archive checked out branch "{branch}".')
+
+    if unarchive:
+        unarchive_snapshots(branch)
+    else:
+        try:
+            sh.git('rev-parse', '--abbrev-ref', branch)
+        except:
+            fatal(f'Branch "{branch}" not found.')
+        if branch in find_archives():
+            fatal(f'Unable to snapshot archived branch "{branch}".')
+
+        rev = find_current_rev('snapshot', branch)
+        if not archive:
+            if tag := snapshot_exists(branch, rev):
+                fatal(f'Snapshot already exists as "{tag}".')
+            next_rev = rev + 1
+            sh.git('tag', f'snapshot/{branch}/{next_rev}', branch)
+            click.echo(f'Created tag "snapshot/{branch}/{next_rev}".')
+        else:
+            if not snapshot_exists(branch, rev):
+                next_rev = rev + 1
+                sh.git('tag', f'snapshot/{branch}/{next_rev}', branch)
+                click.echo(f'Created tag "snapshot/{branch}/{next_rev}".')
+            archive_snapshots(branch)
+
+
+if __name__ == '__main__':
+    snapshot()

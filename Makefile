@@ -12,6 +12,7 @@ BINS= \
   $(BINDIR)/,tasksync \
   $(BINDIR)/,ticket \
   $(BINDIR)/,vlabcfg \
+  $(BINDIR)/git-snapshot \
   $(BINDIR)/vmg \
 
 .PHONY: install
