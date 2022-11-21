@@ -157,8 +157,9 @@ def snapshot_exists(branch, rev):
 @click.option('--archive', is_flag=True)
 @click.option('--unarchive', is_flag=True)
 @click.option('--purge', is_flag=True)
+@click.option('--purge-all', is_flag=True)
 @click.argument('branch', required=False)
-def snapshot(list_snapshots, list_archives, archive, unarchive, purge, branch):
+def snapshot(list_snapshots, list_archives, archive, unarchive, purge, purge_all, branch):
 
     if list_snapshots:
         for branch in find_snapshots():
@@ -168,6 +169,12 @@ def snapshot(list_snapshots, list_archives, archive, unarchive, purge, branch):
     if list_archives:
         for branch in find_archives():
             click.echo(branch)
+        return
+
+    if purge_all:
+        for branch in find_archives():
+            click.echo(f'Purging "{branch}" archives.')
+            purge_archives(branch)
         return
 
     if purge:
