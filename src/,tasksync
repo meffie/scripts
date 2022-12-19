@@ -59,10 +59,17 @@ def main():
 
     kb = kanboard.Client(url, 'jsonrpc', token)
     for card in kb.search_tasks(project_id=project, query=f'assignee:{username}'):
-        if card['is_active'] == '1' and card['swimlane_name'] == 'Planned':
+        if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
             kbid = int(card['id'])
             if kbid not in tasks:
-                task = taskwarrior.Task(kb=str(kbid), description=card['title'])
+                fields = {
+                    'kb': str(kbid),
+                    'description': card['title'],
+                }
+                ticket = card['reference']
+                if ticket:
+                    fields['ticket'] = ticket
+                task = taskwarrior.Task(**fields)
                 tw.add(task)
                 print(f'Added task f{task.uuid} for card {kbid}.')
 
