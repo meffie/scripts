@@ -1,7 +1,71 @@
-#!/bin/bash
-set -x
-set -e
-cd  ~/.task
-git diff --quiet && git diff --staged --quiet || git commit -am update
-git pull --rebase origin master
-git push origin master
+#!/usr/bin/python3
+
+
+import configparser
+import argparse
+import getpass
+import os
+import pprint
+
+try:
+    import kanboard
+except ImportError:
+    print('kanboard module not found.')
+    print('Name: kanboard')
+    print('Summary: Client library for Kanboard')
+    print('Home-page: https://github.com/kanboard/python-api-client')
+    os.sys.exit(1)
+
+try:
+    import taskwarrior
+except ImportError:
+    print('taskwarrior module not found.')
+    print('Name: taskwarrior')
+    print('Summary: Interact with your local taskwarrior task list from Python.')
+    print('Home-page: https://github.com/coddingtonbear/taskwarrior')
+    os.sys.exit(1)
+
+# Monkey patch ssl module to work around our malformed cert.
+# Fixes the error:
+#     ssl.CertificateError: hostname 'kb.devlab.sinenomine.net' doesn't match u'debian-8-x64-02'
+import ssl
+ssl.match_hostname = lambda cert, hostname: True
+ssl._create_default_https_context = ssl._create_unverified_context
+
+
+def main():
+    # Find kanboard tasks.
+    tw = taskwarrior.Client()
+    tasks = {}
+    for task in tw.filter():
+        if hasattr(task, 'kb'):
+            kbid = int(task.kb)
+            tasks[kbid] = task
+
+    # Scan the kanboard and import cards which do not have an
+    # associated task.
+    config = configparser.ConfigParser()
+    filename = os.path.expanduser('~/.kbrc')
+    if not os.path.exists(filename):
+        raise OSError(2, f'kanboard config file not found: {filename}')
+    if len(config.read(filename)) != 1:
+        raise OSError(2, f'Unable to read config file: {filename}')
+
+    project = int(config.get('sync', 'project'))
+    username = config.get('sync', 'username')
+    host = config.get('kanboard', 'host')
+    token = config.get('kanboard', 'token')
+    url = os.path.join(host, 'jsonrpc.php')
+
+    kb = kanboard.Client(url, 'jsonrpc', token)
+    for card in kb.search_tasks(project_id=project, query=f'assignee:{username}'):
+        if card['is_active'] == '1' and card['swimlane_name'] == 'Planned':
+            kbid = int(card['id'])
+            if kbid not in tasks:
+                task = taskwarrior.Task(kb=str(kbid), description=card['title'])
+                tw.add(task)
+                print(f'Added task f{task.uuid} for card {kbid}.')
+
+
+if __name__ == '__main__':
+    main()
