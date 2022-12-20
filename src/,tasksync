@@ -1,28 +1,26 @@
 #!/usr/bin/python3
 
-
 import configparser
 import argparse
 import getpass
 import os
 import pprint
+import re
 
 try:
     import kanboard
 except ImportError:
     print('kanboard module not found.')
-    print('Name: kanboard')
-    print('Summary: Client library for Kanboard')
-    print('Home-page: https://github.com/kanboard/python-api-client')
+    print('Install kanboard with pip:')
+    print('  pip3 install kanboard')
     os.sys.exit(1)
 
 try:
-    import taskwarrior
+    import taskw
 except ImportError:
-    print('taskwarrior module not found.')
-    print('Name: taskwarrior')
-    print('Summary: Interact with your local taskwarrior task list from Python.')
-    print('Home-page: https://github.com/coddingtonbear/taskwarrior')
+    print('taskw module not found.')
+    print('Install taskw with pip:')
+    print('  pip3 install taskw')
     os.sys.exit(1)
 
 # Monkey patch ssl module to work around our malformed cert.
@@ -35,12 +33,14 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 def main():
     # Find kanboard tasks.
-    tw = taskwarrior.Client()
-    tasks = {}
-    for task in tw.filter():
-        if hasattr(task, 'kb'):
-            kbid = int(task.kb)
-            tasks[kbid] = task
+    tw = taskw.TaskWarrior()
+    kb_tasks = {}
+    all_tasks = tw.load_tasks()
+    for key in all_tasks.keys():
+        for task in all_tasks[key]:
+            if 'kb' in task:
+                kb = int(task['kb'])
+                kb_tasks[kb] = task
 
     # Scan the kanboard and import cards which do not have an
     # associated task.
@@ -51,27 +51,43 @@ def main():
     if len(config.read(filename)) != 1:
         raise OSError(2, f'Unable to read config file: {filename}')
 
-    project = int(config.get('sync', 'project'))
+    project_id = int(config.get('sync', 'project'))
     username = config.get('sync', 'username')
     host = config.get('kanboard', 'host')
     token = config.get('kanboard', 'token')
     url = os.path.join(host, 'jsonrpc.php')
 
     kb = kanboard.Client(url, 'jsonrpc', token)
-    for card in kb.search_tasks(project_id=project, query=f'assignee:{username}'):
+    for card in kb.search_tasks(project_id=project_id, query=f'assignee:{username}'):
+        kb_id = int(card['id'])
         if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
-            kbid = int(card['id'])
-            if kbid not in tasks:
-                fields = {
-                    'kb': str(kbid),
-                    'description': card['title'],
-                }
+            if kb_id not in kb_tasks:
+                # Extract project name from card title.
+                m = re.match(r'([a-zA-Z0-9-]+):\s+(.*)', card['title'])
+                if m:
+                    project = m.group(1)
+                    title = m.group(2)
+                else:
+                    project = None
+                    title = card['title']
+                # Filter out non-alphanum from title and keywords to avoid add failure.
+                title = re.sub(r'[^a-zA-Z0-9 \-.]+', '_', title)
+                title = title.replace('ticket', '_ticket').replace('gerrit', '_gerrit').replace('kb', '_kb')
                 ticket = card['reference']
+                fields = {'kb': int(kb_id)}
                 if ticket:
-                    fields['ticket'] = ticket
-                task = taskwarrior.Task(**fields)
-                tw.add(task)
-                print(f'Added task f{task.uuid} for card {kbid}.')
+                    fields['ticket'] = int(ticket)
+                if project:
+                    fields['project'] = project
+                task = tw.task_add(title, **fields)
+                uuid = task['uuid']
+                print(f'Added task {uuid} for card {kb_id}.')
+        elif card['is_active'] == '0' or card['column_name'] == 'Done':
+            if task := kb_tasks.get(kb_id, None):
+                if task['status'] == 'pending':
+                    tw.task_done(id=task['id'])
+                    uuid = task['uuid']
+                    print(f'Completed task {uuid} for card {kb_id}.')
 
 
 if __name__ == '__main__':
