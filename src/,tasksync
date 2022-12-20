@@ -6,6 +6,7 @@ import getpass
 import os
 import pprint
 import re
+import sh
 
 try:
     import kanboard
@@ -60,8 +61,17 @@ def main():
     kb = kanboard.Client(url, 'jsonrpc', token)
     for card in kb.search_tasks(project_id=project_id, query=f'assignee:{username}'):
         kb_id = int(card['id'])
+        task = kb_tasks.get(kb_id, None)
         if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
-            if kb_id not in kb_tasks:
+            if task:
+                if task['status'] == 'completed':
+                    #task['status'] == 'pending'
+                    #tw.task_update(task)
+                    uuid = task['uuid']
+                    sh.task(uuid, 'modify', 'status:pending')
+                    print(f'Updated task {uuid} for card {kb_id}.')
+            else:
+                # Import card
                 # Extract project name from card title.
                 m = re.match(r'([a-zA-Z0-9-]+):\s+(.*)', card['title'])
                 if m:
@@ -83,11 +93,12 @@ def main():
                 uuid = task['uuid']
                 print(f'Added task {uuid} for card {kb_id}.')
         elif card['is_active'] == '0' or card['column_name'] == 'Done':
-            if task := kb_tasks.get(kb_id, None):
-                if task['status'] == 'pending':
-                    tw.task_done(id=task['id'])
-                    uuid = task['uuid']
-                    print(f'Completed task {uuid} for card {kb_id}.')
+            if task and task['status'] == 'pending':
+                # Update task
+                task['status'] = 'completed'
+                tw.task_update(task)
+                uuid = task['uuid']
+                print(f'Completed task {uuid} for card {kb_id}.')
 
 
 if __name__ == '__main__':
