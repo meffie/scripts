@@ -1,0 +1,88 @@
+#!/usr/bin/python3
+
+import configparser
+import argparse
+import getpass
+import os
+import pprint
+import re
+
+try:
+    import kanboard
+except ImportError:
+    print('kanboard module not found.')
+    print('Install kanboard with pip:')
+    print('  pip3 install kanboard')
+    os.sys.exit(1)
+
+try:
+    import taskw
+except ImportError:
+    print('taskw module not found.')
+    print('Install taskw with pip:')
+    print('  pip3 install taskw')
+    os.sys.exit(1)
+
+# Monkey patch ssl module to work around our malformed cert.
+# Fixes the error:
+#     ssl.CertificateError: hostname 'kb.devlab.sinenomine.net' doesn't match u'debian-8-x64-02'
+import ssl
+ssl.match_hostname = lambda cert, hostname: True
+ssl._create_default_https_context = ssl._create_unverified_context
+
+
+def main():
+    # Find kanboard tasks.
+    tw = taskw.TaskWarrior()
+    kb_tasks = {}
+    all_tasks = tw.load_tasks()
+    for key in all_tasks.keys():
+        for task in all_tasks[key]:
+            if 'kb' in task:
+                kb = int(task['kb'])
+                kb_tasks[kb] = task
+
+    # Scan the kanboard and import cards which do not have an
+    # associated task.
+    config = configparser.ConfigParser()
+    filename = os.path.expanduser('~/.kbrc')
+    if not os.path.exists(filename):
+        raise OSError(2, f'kanboard config file not found: {filename}')
+    if len(config.read(filename)) != 1:
+        raise OSError(2, f'Unable to read config file: {filename}')
+
+    project_id = int(config.get('sync', 'project'))
+    username = config.get('sync', 'username')
+    host = config.get('kanboard', 'host')
+    token = config.get('kanboard', 'token')
+    url = os.path.join(host, 'jsonrpc.php')
+
+    kb = kanboard.Client(url, 'jsonrpc', token)
+    for card in kb.search_tasks(project_id=project_id, query=f'assignee:{username}'):
+        if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
+            kb_id = int(card['id'])
+            if kb_id not in kb_tasks:
+                # Extract project name from card title.
+                m = re.match(r'([a-zA-Z0-9-]+):\s+(.*)', card['title'])
+                if m:
+                    project = m.group(1)
+                    title = m.group(2)
+                else:
+                    project = None
+                    title = card['title']
+                # Filter out non-alphanum from title and keywords to avoid add failure.
+                title = re.sub(r'[^a-zA-Z0-9 \-.]+', '_', title)
+                title = title.replace('ticket', '_ticket').replace('gerrit', '_gerrit').replace('kb', '_kb')
+                ticket = card['reference']
+                fields = {'kb': int(kb_id)}
+                if ticket:
+                    fields['ticket'] = int(ticket)
+                if project:
+                    fields['project'] = project
+                task = tw.task_add(title, **fields)
+                uuid = task['uuid']
+                print(f'Added task {uuid} for card {kb_id}.')
+
+
+if __name__ == '__main__':
+    main()
