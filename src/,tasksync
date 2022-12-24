@@ -1,72 +1,179 @@
 #!/usr/bin/python3
 
 import configparser
-import argparse
-import getpass
 import os
 import pprint
 import re
 import sh
+import ssl
+import sys
 
 try:
     import kanboard
 except ImportError:
-    print('kanboard module not found.')
-    print('Install kanboard with pip:')
-    print('  pip3 install kanboard')
+    sys.stderr.write('kanboard module not found.\n')
     os.sys.exit(1)
 
 try:
     import taskw
 except ImportError:
-    print('taskw module not found.')
-    print('Install taskw with pip:')
-    print('  pip3 install taskw')
+    sys.stderr.write('taskw module not found.\n')
     os.sys.exit(1)
 
 # Monkey patch ssl module to work around our malformed cert.
 # Fixes the error:
 #     ssl.CertificateError: hostname 'kb.devlab.sinenomine.net' doesn't match u'debian-8-x64-02'
-import ssl
 ssl.match_hostname = lambda cert, hostname: True
 ssl._create_default_https_context = ssl._create_unverified_context
 
+class Config(object):
+
+    def __init__(self, filename='~/.kbrc'):
+        self._filename = os.path.expanduser(filename)
+        if not os.path.exists(self._filename):
+            raise OSError(2, f'Config file not found: {self._filename}')
+        self._config = configparser.ConfigParser()
+        if len(self._config.read(self._filename)) != 1:
+            raise OSError(2, f'Unable to read config file: {self._filename}')
+
+    @property
+    def host(self):
+        return self._config.get('kanboard', 'host')
+
+    @property
+    def token(self):
+        return self._config.get('kanboard', 'token')
+
+    @property
+    def url(self):
+        return os.path.join(self.host, 'jsonrpc.php')
+
+    @property
+    def project_id(self):
+        return int(self._config.get('sync', 'project'))
+
+    @property
+    def username(self):
+        return self._config.get('sync', 'username')
+
+
+class Task(object):
+
+    def __init__(self, data):
+        self._data = data
+
+    def __repr__(self) -> str:
+        return pprint.pformat((self.kb, self.uuid, self.status))
+
+    def done(self):
+        print(f'done: task {self.uuid} {self.status}')
+
+    @property
+    def status(self):
+        return self._data['status']
+
+    @property
+    def description(self):
+        return self._data['description']
+
+    @property
+    def kb(self):
+        return int(self._data['kb'])
+
+    @property
+    def uuid(self):
+        return self._data['uuid']
+
+    @property
+    def tags(self):
+        return self._data.get('tags', None) or []
+
+    @property
+    def project(self):
+        return self._data.get('project', None) or ''
+
+
+class Card(object):
+
+    def __init__(self, data):
+        self._data = data
+
+    def __repr__(self) -> str:
+        return pprint.pformat((self.id, self.column))
+
+    def create_task(self):
+        print(f'create a task for card {self.id}')
+
+    @property
+    def title(self):
+        return self._data['title']
+
+    @property
+    def id(self):
+        return int(self._data['id'])
+
+    @property
+    def swimlane(self):
+        swimlane = self._data['swimlane_name'] or self._data['default_swimlane']
+        return swimlane.replace(' ', '').lower()
+
+    @property
+    def column(self):
+        return self._data['column_name'].replace(':', '').replace(' ', '-').lower()
 
 def main():
-    # Find kanboard tasks.
+    config = Config()
     tw = taskw.TaskWarrior()
-    kb_tasks = {}
-    all_tasks = tw.load_tasks()
-    for key in all_tasks.keys():
-        for task in all_tasks[key]:
-            if 'kb' in task:
-                kb = int(task['kb'])
-                kb_tasks[kb] = task
+    kb = kanboard.Client(config.url, 'jsonrpc', config.token)
 
-    # Scan the kanboard and import cards which do not have an
-    # associated task.
-    config = configparser.ConfigParser()
-    filename = os.path.expanduser('~/.kbrc')
-    if not os.path.exists(filename):
-        raise OSError(2, f'kanboard config file not found: {filename}')
-    if len(config.read(filename)) != 1:
-        raise OSError(2, f'Unable to read config file: {filename}')
+    tasks = {}
+    for data in tw.filter_tasks({'kb.isnt': ''}):
+        task = Task(data)
+        if task.kb in tasks:
+            raise AssertionError(f'Duplicate task kb value {task.kb}.')
+        tasks[task.kb] = task
+    # pprint.pprint(Task.all)
 
-    project_id = int(config.get('sync', 'project'))
-    username = config.get('sync', 'username')
-    host = config.get('kanboard', 'host')
-    token = config.get('kanboard', 'token')
-    url = os.path.join(host, 'jsonrpc.php')
+    cards = {}
+    query = f'status:open assignee:{config.username}'
+    for data in kb.search_tasks(project_id=config.project_id, query=query):
+        card = Card(data)
+        if card.swimlane == "longterm":
+            continue   # Skip backlog
+        if card.column == "done":
+            continue   # Card was moved to done column, but not closed yet.
+        if card.id in cards:
+            raise AssertionError(f'Duplicate card id value {card.id}.')
+        cards[card.id] = card
+    # pprint.pprint(cards)
 
-    kb = kanboard.Client(url, 'jsonrpc', token)
-    for card in kb.search_tasks(project_id=project_id, query=f'assignee:{username}'):
-        kb_id = int(card['id'])
-        task = kb_tasks.get(kb_id, None)
+    task_ids = set(tasks.keys())
+    card_ids = set(cards.keys())
+
+    # Cards without tasks.
+    for id_ in card_ids - task_ids:
+        cards[id_].create_task()
+
+    # Tasks without cards.
+    for id_ in task_ids - card_ids:
+        task = tasks[id_]
+        if task.status == 'pending':
+            task.done()
+
+    # Instersection.
+    for id_ in task_ids & card_ids:
+        task = tasks[id_]
+        card = cards[id_]
+        print(f'update {id_}')
+
+
+def old():
+    if True:
         if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
             if task:
                 if task['status'] == 'completed':
-                    #task['status'] == 'pending'
-                    #tw.task_update(task)
+                    # taskw task_update() fails to actually modify the task, so
+                    # so fallback to running 'task modify' directly.
                     uuid = task['uuid']
                     sh.task(uuid, 'modify', 'status:pending')
                     print(f'Updated task {uuid} for card {kb_id}.')
@@ -96,8 +203,8 @@ def main():
             if task and task['status'] == 'pending':
                 # Update task
                 task['status'] = 'completed'
-                tw.task_update(task)
                 uuid = task['uuid']
+                sh.task(uuid, 'done')
                 print(f'Completed task {uuid} for card {kb_id}.')
 
 
