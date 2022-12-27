@@ -59,14 +59,59 @@ class Config(object):
 
 class Task(object):
 
+    tw = taskw.TaskWarrior()
+
     def __init__(self, data):
         self._data = data
 
     def __repr__(self) -> str:
         return pprint.pformat((self.kb, self.uuid, self.status))
 
+    @classmethod
+    def add(cls, card):
+        """
+        Create a new task from a kb card.
+        """
+        title = card.safe_title
+        fields = {'kb': card.id}
+        if card.reference:
+            fields['ticket'] = int(card.reference)
+        if card.project:
+            fields['project'] = card.project
+        if card.column:
+
+            fields['tags'] = [card.column]
+        data = cls.tw.task_add(title, **fields)
+        task = Task(data)
+        print(f'Added task {task.uuid} for card {task.kb}.')
+        return task
+
+    def matches(self, card):
+        if self.kb != card.id:
+            return False
+        if self.description != card.safe_title:
+            return False
+        if self.project != card.project:
+            return False
+        if str(self.ticket) != str(card.reference):
+            return False
+        return True
+
+    def update(self, card):
+        """
+        Update the task with the current card info.
+        """
+        if card.column not in self.tags:
+            tags = [f'+{card.column}']
+            tags.extend(map(lambda t: f'-{t}', self.tags & card.columns))
+            sh.task(self.uuid, 'modify', *tags)
+            tags = ' '.join(tags)
+            print(f'Updated task {self.uuid} tags {tags}')
+
     def done(self):
-        print(f'done: task {self.uuid} {self.status}')
+        self._data['status'] = 'completed'
+        sh.task(self.uuid, 'done')
+        print(f'Completed task {self.uuid} for card {self.kb}.')
 
     @property
     def status(self):
@@ -86,17 +131,33 @@ class Task(object):
 
     @property
     def tags(self):
-        return self._data.get('tags', None) or []
+        return set(self._data.get('tags', None) or [])
 
     @property
     def project(self):
-        return self._data.get('project', None) or ''
+        return self._data.get('project', '')
+
+    @property
+    def ticket(self):
+        return self._data.get('ticket', '')
 
 
 class Card(object):
 
+    columns = set(['todo', 'doing', 'done', 'blocked_internal', 'blocked_customer', 'blocked_upstream'])
+
     def __init__(self, data):
         self._data = data
+        # Extract project name from card title.
+        m = re.match(r'([a-zA-Z0-9-]+):\s+(.*)', data['title'])
+        if m:
+            project = m.group(1)
+            title = m.group(2)
+        else:
+            project = ''
+            title = data['title']
+        self._title = title
+        self._project = project
 
     def __repr__(self) -> str:
         return pprint.pformat((self.id, self.column))
@@ -105,12 +166,34 @@ class Card(object):
         print(f'create a task for card {self.id}')
 
     @property
-    def title(self):
+    def full_title(self):
         return self._data['title']
+
+    @property
+    def title(self):
+        return self._title
+
+    @property
+    def safe_title(self):
+        """
+        Filter out non-alphanumeric chars and keywords to avoid add failure.
+        """
+        title = re.sub(r'[^a-zA-Z0-9 \-.]+', '_', self.title)
+        for kw in ('ticket', 'gerrit', 'kb'):
+            title = title.replace(kw, f'_{kw}')
+        return title
+
+    @property
+    def project(self):
+        return self._project
 
     @property
     def id(self):
         return int(self._data['id'])
+
+    @property
+    def reference(self):
+        return self._data.get('reference', None)
 
     @property
     def swimlane(self):
@@ -119,15 +202,14 @@ class Card(object):
 
     @property
     def column(self):
-        return self._data['column_name'].replace(':', '').replace(' ', '-').lower()
+        return self._data['column_name'].replace(':', '').replace(' ', '_').lower()
 
 def main():
     config = Config()
-    tw = taskw.TaskWarrior()
     kb = kanboard.Client(config.url, 'jsonrpc', config.token)
 
     tasks = {}
-    for data in tw.filter_tasks({'kb.isnt': ''}):
+    for data in Task.tw.filter_tasks({'kb.isnt': ''}):
         task = Task(data)
         if task.kb in tasks:
             raise AssertionError(f'Duplicate task kb value {task.kb}.')
@@ -152,7 +234,7 @@ def main():
 
     # Cards without tasks.
     for id_ in card_ids - task_ids:
-        cards[id_].create_task()
+        Task.add(cards[id_])
 
     # Tasks without cards.
     for id_ in task_ids - card_ids:
@@ -164,9 +246,13 @@ def main():
     for id_ in task_ids & card_ids:
         task = tasks[id_]
         card = cards[id_]
-        print(f'update {id_}')
+        task.update(card)
 
 
+if __name__ == '__main__':
+    main()
+
+'''
 def old():
     if True:
         if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
@@ -177,36 +263,5 @@ def old():
                     uuid = task['uuid']
                     sh.task(uuid, 'modify', 'status:pending')
                     print(f'Updated task {uuid} for card {kb_id}.')
-            else:
-                # Import card
-                # Extract project name from card title.
-                m = re.match(r'([a-zA-Z0-9-]+):\s+(.*)', card['title'])
-                if m:
-                    project = m.group(1)
-                    title = m.group(2)
-                else:
-                    project = None
-                    title = card['title']
-                # Filter out non-alphanum from title and keywords to avoid add failure.
-                title = re.sub(r'[^a-zA-Z0-9 \-.]+', '_', title)
-                title = title.replace('ticket', '_ticket').replace('gerrit', '_gerrit').replace('kb', '_kb')
-                ticket = card['reference']
-                fields = {'kb': int(kb_id)}
-                if ticket:
-                    fields['ticket'] = int(ticket)
-                if project:
-                    fields['project'] = project
-                task = tw.task_add(title, **fields)
-                uuid = task['uuid']
-                print(f'Added task {uuid} for card {kb_id}.')
-        elif card['is_active'] == '0' or card['column_name'] == 'Done':
-            if task and task['status'] == 'pending':
-                # Update task
-                task['status'] = 'completed'
-                uuid = task['uuid']
-                sh.task(uuid, 'done')
-                print(f'Completed task {uuid} for card {kb_id}.')
 
-
-if __name__ == '__main__':
-    main()
+'''
