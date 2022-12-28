@@ -79,23 +79,11 @@ class Task(object):
         if card.project:
             fields['project'] = card.project
         if card.column:
-
             fields['tags'] = [card.column]
         data = cls.tw.task_add(title, **fields)
         task = Task(data)
         print(f'Added task {task.uuid} for card {task.kb}.')
         return task
-
-    def matches(self, card):
-        if self.kb != card.id:
-            return False
-        if self.description != card.safe_title:
-            return False
-        if self.project != card.project:
-            return False
-        if str(self.ticket) != str(card.reference):
-            return False
-        return True
 
     def update(self, card):
         """
@@ -107,6 +95,12 @@ class Task(object):
             sh.task(self.uuid, 'modify', *tags)
             tags = ' '.join(tags)
             print(f'Updated task {self.uuid} tags {tags}')
+        if card.column.startswith('blocked') and self.status == 'pending':
+            sh.task(self.uuid, 'modify', 'wait:eom')
+            print(f'Updated task {self.uuid} wait')
+        if card.reference and str(card.reference) != str(self.ticket):
+            sh.task(self.uuid, 'modify', f'ticket:{card.reference}')
+            print(f'Updated task {self.uuid} ticket {card.reference}')
 
     def done(self):
         self._data['status'] = 'completed'
@@ -115,7 +109,7 @@ class Task(object):
 
     @property
     def status(self):
-        return self._data['status']
+        return self._data['status'].lower()
 
     @property
     def description(self):
