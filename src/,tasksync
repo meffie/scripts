@@ -101,6 +101,9 @@ class Task(object):
         if card.reference and str(card.reference) != str(self.ticket):
             sh.task(self.uuid, 'modify', f'ticket:{card.reference}')
             print(f'Updated task {self.uuid} ticket {card.reference}')
+        if self.description != card.safe_title:
+            sh.task(self.uuid, 'modify', card.safe_title)
+            print(f'Updated task {self.uuid} title {card.safe_title}')
 
     def done(self):
         self._data['status'] = 'completed'
@@ -245,17 +248,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-'''
-def old():
-    if True:
-        if card['is_active'] == '1' and card['swimlane_name'] != 'Long Term' and card['column_name'] != 'Done':
-            if task:
-                if task['status'] == 'completed':
-                    # taskw task_update() fails to actually modify the task, so
-                    # so fallback to running 'task modify' directly.
-                    uuid = task['uuid']
-                    sh.task(uuid, 'modify', 'status:pending')
-                    print(f'Updated task {uuid} for card {kb_id}.')
-
-'''

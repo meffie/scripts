@@ -83,9 +83,9 @@ def main():
            'owner_id': user['id'],
         }
         if 'ticket' in task:
-            fields['reference'] = task['ticket']
+            fields['reference'] = str(task['ticket'])
         kb_id = kb.create_task(**fields)
-        task['kb'] = int(kb_id)   # Add the generated id to the task.
+        task['kb'] = str(kb_id)   # Add the generated id to the task.
         feedback = f'Added kanboard card {kb_id}.'
 
     print(json.dumps(task))
