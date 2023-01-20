@@ -8,6 +8,7 @@ BINS= \
   $(BINDIR)/,patchreport \
   $(BINDIR)/,resizeimages \
   $(BINDIR)/,rtquery \
+  $(BINDIR)/,release-team \
   $(BINDIR)/,taskcolor \
   $(BINDIR)/,tasksync \
   $(BINDIR)/,ticket \
@@ -20,7 +21,7 @@ TASKWARRIOR_HOOKS= \
   $(TASKWARRIOR_HOOK_DIR)/on-add-create-kb-card.py
 
 .PHONY: install
-install: .requirements $(BINDIR) $(BINS) $(TASKWARRIOR_HOOKS)
+install: .requirements $(BINDIR) $(BINS) $(TASKWARRIOR_HOOK_DIR) $(TASKWARRIOR_HOOKS)
 
 .PHONY: remove
 remove:
@@ -36,6 +37,9 @@ $(BINDIR):
 
 $(BINDIR)/%: src/%
 	install $< $(BINDIR)
+
+$(TASKWARRIOR_HOOK_DIR):
+	mkdir -p $(TASKWARRIOR_HOOK_DIR)
 
 $(TASKWARRIOR_HOOK_DIR)/%: src/%
 	install $< $(TASKWARRIOR_HOOK_DIR)

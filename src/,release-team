@@ -1,0 +1,40 @@
+#!/bin/bash
+# Start new release team minutes.
+
+DATE=$(date "+%B %d, %Y")
+OUTPUT="$HOME/notes/release-team/$(date "+%Y-%m-%d").txt"
+
+if [ -f "$OUTPUT" ]; then
+    echo "File $OUTPUT already exists." >&2
+else
+    cat << __EOF__ >$OUTPUT
+OpenAFS Release Team weekly meeting
+
+Date: $DATE
+Participants:
+- Stephan Wiesand, OpenAFS Release Manager
+- Ben Kaduk
+- Cheyenne Wills
+- Michael Meffie
+- Mark Vitale
+
+The OpenAFS Release Team meetings are held on IRC each Thursday at 16:00 UTC
+on the #openafs-releaseteam channel of Libera.Chat.
+
+
+Stable (1.8.x)
+==============
+
+
+Development (1.9.x/master)
+==========================
+
+
+Recent Changes
+==============
+
+__EOF__
+    ,patchreport >>$OUTPUT || exit
+    echo "Created $OUTPUT" >&2
+fi
+vim $OUTPUT
