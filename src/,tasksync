@@ -175,9 +175,9 @@ class Card(object):
         """
         Filter out non-alphanumeric chars and keywords to avoid add failure.
         """
-        title = re.sub(r'[^a-zA-Z0-9 \-.]+', '_', self.title)
+        title = re.sub(r'[^a-zA-Z0-9 \-.,:/]+', '', self.title)
         for kw in ('ticket', 'gerrit', 'kb'):
-            title = title.replace(kw, f'_{kw}')
+            title = title.replace(kw, f'[{kw}]')
         return title
 
     @property
