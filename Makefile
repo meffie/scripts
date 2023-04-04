@@ -17,8 +17,8 @@ BINS= \
   $(BINDIR)/vmg \
 
 TASKWARRIOR_HOOK_DIR=$(HOME)/.task/hooks
-TASKWARRIOR_HOOKS= \
-  $(TASKWARRIOR_HOOK_DIR)/on-add-create-kb-card.py
+TASKWARRIOR_HOOKS=
+# $(TASKWARRIOR_HOOK_DIR)/on-add-create-kb-card.py
 
 .PHONY: install
 install: .requirements $(BINDIR) $(BINS) $(TASKWARRIOR_HOOK_DIR) $(TASKWARRIOR_HOOKS)

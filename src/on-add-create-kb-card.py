@@ -95,7 +95,7 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        # main()
         rc = 0
     except Exception as e:
         print(f'Hook failed: {e}')
