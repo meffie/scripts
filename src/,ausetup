@@ -1,8 +1,8 @@
 #!/bin/sh
 
 HOST=`hostname`
-PYTHON="$(pwd)/.venv/bin/python2"
-AFSUTIL="$(pwd)/.venv/bin/afsutil"
+PYTHON="$VIRTUAL_ENV/bin/python"
+AFSUTIL="$VIRTUAL_ENV/bin/afsutil"
 SUDO_AFSUTIL="/usr/bin/sudo -n $PYTHON $AFSUTIL"
 
 # Installing
