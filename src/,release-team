@@ -1,6 +1,7 @@
 #!/bin/bash
 # Start new release team minutes.
 
+WEEKS=${1:-1}
 DATE=$(date "+%B %d, %Y")
 OUTPUT="$HOME/notes/release-team/$(date "+%Y-%m-%d").txt"
 
@@ -33,7 +34,7 @@ Recent Changes
 ==============
 
 __EOF__
-    ,patchreport >>$OUTPUT || exit
+    ,patchreport $WEEKS >>$OUTPUT || exit
     echo "Created $OUTPUT" >&2
 fi
 vim $OUTPUT
