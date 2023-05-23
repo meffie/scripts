@@ -1,0 +1,128 @@
+#!/usr/bin/python3
+#
+# Sometimes adding reviewers by email in the web interface is difficult when a
+# user has multiple identities or old accounts that are no longer active, but
+# have the same email address as the active account.  In order to add the user
+# to the reviewers, you can add them by username or gerrit account id number
+# (e.g. 1000020).  Unfortunately, gerrit does not list the usernames or account
+# ids.
+#
+# Try to get the list of gerrit usernames and account ids using the gerrit REST
+# API.  Unfortunately, gerrit does not support listing all the users, so as a
+# workaround, scan a git log looking for the most recent gerrit number for each
+# author, and then query gerrit (once for each author), to find the account id,
+# and then query the account id to find the user info (name, email, and
+# username). The REST query results are cached in the '.author.json' and
+# '.user.json' local file to avoid delays and extra load on gerrit.
+#
+# Usage:
+#    $ git clone git://git.openafs.org/openafs.git  # if not already cloned
+#    $ cd openafs
+#    $ git config --local gerrit.host gerrit.openafs.org
+#    $ git config --local gerrit.project openafs
+#    # gerrit-accounts
+#
+
+import argparse
+import git_gerrit
+import json
+import pprint
+import pygerrit2.rest
+
+
+def get_account_id(author, number):
+    print(f'getting account id for {author}')
+    results = git_gerrit.query(f'change:{number}')
+    result = list(results)[0]
+    owner = result['owner']
+    account_id = owner['_account_id']
+    return account_id
+
+
+def get_authors():
+    try:
+        with open('.authors.json') as f:
+            authors = json.load(f)
+    except:
+        authors = {}
+    for commit in git_gerrit.log():
+        # pprint.pprint(commit)
+        number = commit['number']
+        if number == '-':
+            continue
+        author = commit['author']
+        if author == 'IBM':
+            continue
+        if author not in authors:
+            account_id = get_account_id(author, number)
+            authors[author] = account_id
+            with open('authors.json', 'w') as f:
+                json.dump(authors, f)
+    return authors
+
+
+def get_user(account_id):
+    print(f'looking up user {account_id}')
+    query = f'/accounts/{account_id}/'
+    gerrit = pygerrit2.rest.GerritRestAPI('https://gerrit.openafs.org')
+    account = gerrit.get(query)
+    return account
+
+
+def get_users(authors):
+    try:
+        with open('.users.json') as f:
+            users = json.load(f)
+    except:
+        users = {}
+    for author in authors:
+        account_id = str(authors[author])  # json keys are strings
+        if account_id not in users:
+            users[account_id] = get_user(account_id)
+            with open('users.json', 'w') as f:
+                json.dump(users, f)
+    return users
+
+
+def print_plain(table):
+    for row in sorted(table):
+        print('\t'.join(row))
+
+
+def print_wiki(table):
+    print('{| class="wikitable" style="margin:auto"')
+    print('|+ Gerrit Account Ids')
+    print('|-')
+    print('! Name !! Email !! Username !! Account Id')
+    for row in sorted(table):
+        print('|-')
+        print('|', '||'.join(row))
+    print('|}')
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--format', choices=['plain', 'wiki'], default='plain')
+    args = parser.parse_args()
+
+    authors = get_authors()
+    users = get_users(authors)
+
+    table = []
+    for account_id in users:
+        user = users[account_id]
+        name = user.get('name')
+        email = user.get('email')
+        username = user.get('username')
+        if name and email and username and not '(GONE)' in name:
+            table.append((name, email, username, account_id))
+
+    if args.format == 'plain':
+        print_plain(table)
+    elif args.format == 'wiki':
+        print_wiki(table)
+    else:
+        raise AssertionError('Invalid --format option: {0}'.format(args.format))
+
+
+main()

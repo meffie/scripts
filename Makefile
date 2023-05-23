@@ -13,6 +13,7 @@ BINS= \
   $(BINDIR)/,tasksync \
   $(BINDIR)/,ticket \
   $(BINDIR)/,vlabcfg \
+  $(BINDIR)/gerrit-accounts \
   $(BINDIR)/git-snapshot \
   $(BINDIR)/vmg \
 
