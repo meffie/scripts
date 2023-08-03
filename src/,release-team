@@ -20,7 +20,11 @@ Participants:
 - Mark Vitale
 
 The OpenAFS Release Team meetings are held each Thursday at 12:00pm Eastern,
-9:00am Pacific, on IRC channel #openafs-releaseteam of Libra.Chat.
+9:00am Pacific on Libera.Chat IRC channel #openafs-releaseteam.
+
+Release team working status is maintained at:
+
+    https://wiki.openafs.org/devel/Whiteboard/
 
 Stable (1.8.x)
 ==============
