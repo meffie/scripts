@@ -3,7 +3,7 @@
 
 WEEKS=${1:-1}
 DATE=$(date "+%B %d, %Y")
-OUTPUT="$HOME/notes/release-team/$(date "+%Y-%m-%d").txt"
+OUTPUT="$HOME/notes/projects/openafs/release-team/$(date "+%Y-%m-%d").txt"
 
 if [ -f "$OUTPUT" ]; then
     echo "File $OUTPUT already exists." >&2
